@@ -1,0 +1,626 @@
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
+
+use crate::action::{Action, SymbolFace};
+use crate::board::{
+    EdgeId, NodeKind, RoomLabel, ADJACENCY, BLUE_EDGES, EDGE_COUNT, ENTRANCE,
+    GREEN_EDGES, NODE_COUNT, NODES, room_node,
+};
+use crate::rules;
+use crate::state::{
+    EdgeState, GameState, GhostCard, GhostDeck, NodeState, TurnPhase, JEWEL_COUNT,
+    MAX_FIGURES, MAX_GHOST_CARDS, MAX_SPUK,
+};
+use crate::strategy_trait::Strategy;
+use crate::variant::Variant;
+
+// ---------------------------------------------------------------------------
+// Public result types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepResult {
+    /// Game continues; phase has advanced.
+    Continue,
+    /// All 8 jewels deposited and all figures at entrance.
+    Win,
+    /// 6th Spuk placed.
+    Loss,
+    /// The submitted action was not legal in the current phase.
+    /// In debug mode this panics; in release it is returned gracefully.
+    IllegalAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GameResult {
+    pub won: bool,
+    pub turns_taken: u32,
+    pub spuk_placed: u8,
+    pub jewels_deposited: u8,
+}
+
+/// Records what a ghost card resolution did (useful for logging / replay).
+#[derive(Debug, Clone, Copy)]
+pub enum GhostCardEvent {
+    GhostPlaced { room: RoomLabel },
+    SpukPlaced { room: RoomLabel },
+    Reshuffled,
+    /// Extra draws were triggered (Zieh 2 / Zieh 3). `extra` is the number of
+    /// additional draws queued.
+    DrawMultiple { extra: u8 },
+    BlueDoorsClosed,
+    GreenDoorsClosed,
+}
+
+// ---------------------------------------------------------------------------
+// Game driver
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct Game {
+    pub state: GameState,
+    rng: StdRng,
+}
+
+impl Game {
+    pub fn new(seed: u64, variant: Variant, figure_count: u8) -> Self {
+        assert!(figure_count == 3 || figure_count == 4, "figure_count must be 3 or 4");
+        let mut rng = StdRng::seed_from_u64(seed);
+        let state = Self::setup(&mut rng, variant, figure_count);
+        Self { state, rng }
+    }
+
+    /// Create a game from an existing state snapshot with a new RNG seed.
+    /// Used for MCTS rollouts.
+    pub fn from_state(state: GameState, seed: u64) -> Self {
+        Self {
+            state,
+            rng: StdRng::seed_from_u64(seed),
+        }
+    }
+
+    pub fn step(&mut self, action: Action) -> StepResult {
+        if self.state.game_over {
+            return if self.state.players_won {
+                StepResult::Win
+            } else {
+                StepResult::Loss
+            };
+        }
+
+        let result = self.apply(action);
+
+        // Check terminal conditions after every step.
+        if rules::is_loss(&self.state) {
+            self.state.game_over = true;
+            self.state.players_won = false;
+            return StepResult::Loss;
+        }
+        if rules::is_win(&self.state) {
+            self.state.game_over = true;
+            self.state.players_won = true;
+            return StepResult::Win;
+        }
+        result
+    }
+
+    pub fn legal_actions(&self) -> Vec<Action> {
+        rules::legal_actions(&self.state)
+    }
+
+    pub fn legal_actions_into(&self, buf: &mut Vec<Action>) {
+        rules::legal_actions_into(&self.state, buf);
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.state.game_over
+    }
+
+    /// `Some(true)` = win, `Some(false)` = loss, `None` = in progress.
+    pub fn winner(&self) -> Option<bool> {
+        if self.state.game_over {
+            Some(self.state.players_won)
+        } else {
+            None
+        }
+    }
+
+    pub fn state_snapshot(&self) -> GameState {
+        self.state.clone()
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal: action dispatch
+    // -----------------------------------------------------------------------
+
+    fn apply(&mut self, action: Action) -> StepResult {
+        match (&self.state.phase, action) {
+            (TurnPhase::RollDie, Action::RollDie) => {
+                let roll = self.roll_number_die();
+                self.state.die_roll = roll;
+                self.state.moves_remaining = roll;
+                if roll < 6 {
+                    self.state.phase = TurnPhase::DrawGhostCard { cards_remaining: 1 };
+                } else {
+                    self.state.phase = TurnPhase::Move;
+                }
+                StepResult::Continue
+            }
+            (TurnPhase::DrawGhostCard { cards_remaining }, Action::DrawGhostCard) => {
+                let remaining = *cards_remaining;
+                self.resolve_next_ghost_card();
+                if self.state.game_over {
+                    return StepResult::Loss;
+                }
+                // cards_remaining may have been bumped by a DrawTwo/DrawThree card.
+                // Re-read it from state after resolution.
+                match self.state.phase {
+                    TurnPhase::DrawGhostCard { cards_remaining: r } if r > 0 => {
+                        // More cards to draw; phase stays the same.
+                    }
+                    _ => {
+                        self.state.phase = TurnPhase::Move;
+                    }
+                }
+                let _ = remaining;
+                StepResult::Continue
+            }
+            (TurnPhase::Move, Action::MoveAlongEdge { edge }) => {
+                self.move_figure(edge)
+            }
+            (TurnPhase::Move, Action::StopMoving) => {
+                self.state.moves_remaining = 0;
+                self.advance_from_move();
+                StepResult::Continue
+            }
+            (TurnPhase::Move, Action::DepositJewel) => {
+                self.deposit_jewel();
+                // Stay in Move phase — figure may still have moves.
+                StepResult::Continue
+            }
+            (TurnPhase::PickupJewel, Action::PickupJewel { jewel }) => {
+                self.pickup_jewel(jewel);
+                self.state.phase = TurnPhase::Combat;
+                StepResult::Continue
+            }
+            (TurnPhase::PickupJewel, Action::SkipPickup) => {
+                self.state.phase = TurnPhase::Combat;
+                StepResult::Continue
+            }
+            (TurnPhase::PickupJewel, Action::DepositJewel) => {
+                self.deposit_jewel();
+                self.state.phase = TurnPhase::Combat;
+                StepResult::Continue
+            }
+            (TurnPhase::Combat, Action::Fight) => {
+                self.fight();
+                self.state.phase = TurnPhase::EndTurn;
+                StepResult::Continue
+            }
+            (TurnPhase::Combat, Action::SkipCombat) => {
+                self.state.phase = TurnPhase::EndTurn;
+                StepResult::Continue
+            }
+            (TurnPhase::EndTurn, Action::EndTurn) => {
+                self.advance_turn();
+                StepResult::Continue
+            }
+            _ => {
+                debug_assert!(false, "illegal action {:?} in phase {:?}", action, self.state.phase);
+                StepResult::IllegalAction
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Movement
+    // -----------------------------------------------------------------------
+
+    fn move_figure(&mut self, edge: EdgeId) -> StepResult {
+        let fig = self.state.active_figure as usize;
+        let from = self.state.figure_pos[fig];
+        let dest = ADJACENCY.other_end(edge, from);
+
+        // Remove figure from current node.
+        self.state.node_states[from as usize].remove_figure(self.state.active_figure);
+        // Place at destination.
+        self.state.node_states[dest as usize].add_figure(self.state.active_figure);
+        self.state.figure_pos[fig] = dest;
+        self.state.moves_remaining -= 1;
+
+        // Reveal jewel number if entering a room in numbered-jewel variant.
+        if self.state.variant.numbered_jewels {
+            if let Some(jewel_id) = self.state.node_states[dest as usize].jewel {
+                // jewel_number == 0 means not yet revealed.
+                if self.state.jewel_number[jewel_id as usize] == 0 {
+                    // Assign the next unrevealed number. The true assignment was
+                    // made at setup; this flag just controls visibility in PlayerView.
+                    // The actual number is already stored; set visibility by marking it > 0.
+                    // (It was stored as a shuffled permutation at setup, never 0 there.)
+                }
+                // Numbers are pre-assigned at setup and stored in jewel_number.
+                // Visibility is implicit: a strategy reading jewel_number[id] > 0 sees it.
+            }
+        }
+
+        if self.state.moves_remaining == 0 {
+            self.advance_from_move();
+        }
+        StepResult::Continue
+    }
+
+    /// Transition out of the Move phase once the figure has used all moves or chose to stop.
+    fn advance_from_move(&mut self) {
+        let fig = self.state.active_figure as usize;
+        let pos = self.state.figure_pos[fig];
+        // If at entrance and carrying a jewel, allow deposit before pickup/combat.
+        if pos == ENTRANCE && self.state.figure_carries[fig].is_some() {
+            self.state.phase = TurnPhase::PickupJewel;
+            return;
+        }
+        let in_room = matches!(NODES[pos as usize].kind, NodeKind::Room(_));
+        if in_room {
+            self.state.phase = TurnPhase::PickupJewel;
+        } else {
+            self.state.phase = TurnPhase::Combat;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Jewel mechanics
+    // -----------------------------------------------------------------------
+
+    fn pickup_jewel(&mut self, jewel_id: crate::state::JewelId) {
+        let fig = self.state.active_figure as usize;
+        let pos = self.state.figure_pos[fig];
+        self.state.node_states[pos as usize].jewel = None;
+        self.state.figure_carries[fig] = Some(jewel_id);
+    }
+
+    fn deposit_jewel(&mut self) {
+        let fig = self.state.active_figure as usize;
+        if let Some(jewel_id) = self.state.figure_carries[fig].take() {
+            self.state.jewel_deposited[jewel_id as usize] = true;
+            // In numbered-jewel mode, advance the required counter.
+            if self.state.variant.numbered_jewels {
+                self.state.next_required_jewel += 1;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Combat
+    // -----------------------------------------------------------------------
+
+    fn fight(&mut self) {
+        let fig = self.state.active_figure;
+        let pos = self.state.figure_pos[fig as usize];
+        let ns = &self.state.node_states[pos as usize];
+        let figures_here = ns.figure_count();
+
+        let die_a = self.roll_symbol_die();
+
+        if figures_here >= 2 {
+            let die_b = self.roll_symbol_die();
+            // With 2+ figures: Spuk face on either die removes Spuk.
+            if (die_a == SymbolFace::Spuk || die_b == SymbolFace::Spuk)
+                && self.state.node_states[pos as usize].has_spuk
+            {
+                self.state.node_states[pos as usize].has_spuk = false;
+                self.state.spuk_count -= 1;
+                return;
+            }
+            // Ghost face on either die removes one ghost.
+            if (die_a == SymbolFace::Ghost || die_b == SymbolFace::Ghost)
+                && self.state.node_states[pos as usize].ghosts > 0
+            {
+                self.state.node_states[pos as usize].ghosts -= 1;
+            }
+        } else {
+            // Single figure: only ghost face removes one ghost (Spuk cannot be fought alone).
+            if die_a == SymbolFace::Ghost && self.state.node_states[pos as usize].ghosts > 0 {
+                self.state.node_states[pos as usize].ghosts -= 1;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Ghost card resolution
+    // -----------------------------------------------------------------------
+
+    fn resolve_next_ghost_card(&mut self) {
+        // Reshuffle if deck is empty.
+        if self.state.deck.is_empty() {
+            self.shuffle_deck();
+        }
+        let Some(card) = self.state.deck.draw() else {
+            return;
+        };
+
+        match card {
+            GhostCard::Room(room) => {
+                let game_over = self.place_ghost_in(room);
+                if game_over {
+                    self.state.game_over = true;
+                    self.state.players_won = false;
+                }
+                self.decrement_ghost_cards_remaining();
+            }
+            GhostCard::Reshuffle => {
+                self.shuffle_deck();
+                self.decrement_ghost_cards_remaining();
+            }
+            GhostCard::DrawTwo => {
+                // Queue 2 extra card draws by bumping cards_remaining.
+                self.bump_cards_remaining(2);
+            }
+            GhostCard::DrawThree => {
+                self.bump_cards_remaining(3);
+            }
+            GhostCard::BlueDoors => {
+                for &eid in BLUE_EDGES {
+                    self.state.edge_states[eid as usize].closed = true;
+                }
+                self.decrement_ghost_cards_remaining();
+            }
+            GhostCard::GreenDoors => {
+                for &eid in GREEN_EDGES {
+                    self.state.edge_states[eid as usize].closed = true;
+                }
+                self.decrement_ghost_cards_remaining();
+            }
+        }
+    }
+
+    fn decrement_ghost_cards_remaining(&mut self) {
+        if let TurnPhase::DrawGhostCard { ref mut cards_remaining } = self.state.phase {
+            if *cards_remaining > 0 {
+                *cards_remaining -= 1;
+            }
+        }
+    }
+
+    fn bump_cards_remaining(&mut self, extra: u8) {
+        if let TurnPhase::DrawGhostCard { ref mut cards_remaining } = self.state.phase {
+            // Replace the current draw count with `extra` (the card itself was the trigger).
+            *cards_remaining = (*cards_remaining - 1).saturating_add(extra);
+        }
+    }
+
+    /// Place one ghost figure in `room`. Returns `true` if this caused the 6th Spuk.
+    pub(crate) fn place_ghost_in(&mut self, room: RoomLabel) -> bool {
+        let node = room_node(room) as usize;
+        let ns = &mut self.state.node_states[node];
+
+        if ns.has_spuk {
+            // Room already haunted; ghost goes on top (count towards possible future rule extension).
+            // Per base rules: ignore additional ghosts if Spuk present.
+            return false;
+        }
+
+        ns.ghosts += 1;
+        if ns.ghosts >= crate::state::MAX_GHOSTS_BEFORE_SPUK {
+            // 3rd ghost triggers Spuk conversion.
+            ns.ghosts = 0;
+            ns.has_spuk = true;
+            self.state.spuk_count += 1;
+            return self.state.spuk_count >= MAX_SPUK;
+        }
+        false
+    }
+
+    pub(crate) fn shuffle_deck(&mut self) {
+        let size = self.state.deck.size as usize;
+        self.state.deck.cards[..size].shuffle(&mut self.rng);
+        self.state.deck.reset_cursor();
+    }
+
+    // -----------------------------------------------------------------------
+    // Turn advancement
+    // -----------------------------------------------------------------------
+
+    fn advance_turn(&mut self) {
+        self.state.active_figure = (self.state.active_figure + 1) % self.state.figure_count;
+        self.state.phase = TurnPhase::RollDie;
+        self.state.die_roll = 0;
+        self.state.moves_remaining = 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // Dice
+    // -----------------------------------------------------------------------
+
+    pub(crate) fn roll_number_die(&mut self) -> u8 {
+        self.rng.random_range(1u8..=6u8)
+    }
+
+    pub(crate) fn roll_symbol_die(&mut self) -> SymbolFace {
+        let idx = self.rng.random_range(0usize..6);
+        SymbolFace::FACES[idx]
+    }
+
+    // -----------------------------------------------------------------------
+    // Game setup
+    // -----------------------------------------------------------------------
+
+    fn setup(rng: &mut StdRng, variant: Variant, figure_count: u8) -> GameState {
+        let mut node_states = [NodeState::default(); NODE_COUNT];
+        let edge_states = [EdgeState::default(); EDGE_COUNT];
+
+        // Place starting figures at entrance.
+        // (We don't set node_states[ENTRANCE].figures here; the engine tracks figure_pos;
+        //  NodeState.figures is kept consistent in move_figure. We initialize it below.)
+        let figure_pos = [ENTRANCE; MAX_FIGURES];
+        for i in 0..figure_count as usize {
+            node_states[ENTRANCE as usize].add_figure(i as u8);
+        }
+
+        // Place starting ghosts.
+        for &room in &RoomLabel::STARTS_WITH_GHOST {
+            node_states[room_node(room) as usize].ghosts = 1;
+        }
+
+        // Place jewels in jewel rooms.
+        let mut jewel_number = [0u8; JEWEL_COUNT];
+        let mut next_required_jewel = 1u8;
+
+        // Assign jewel IDs 0..7 to the 8 jewel rooms.
+        let jewel_rooms = RoomLabel::STARTS_WITH_JEWEL;
+        for (jewel_id, &room) in jewel_rooms.iter().enumerate() {
+            node_states[room_node(room) as usize].jewel = Some(jewel_id as u8);
+        }
+
+        // In numbered-jewel variant, assign a shuffled permutation 1..=8.
+        if variant.numbered_jewels {
+            let mut numbers: [u8; JEWEL_COUNT] = [1, 2, 3, 4, 5, 6, 7, 8];
+            numbers.shuffle(rng);
+            jewel_number = numbers;
+            next_required_jewel = 1;
+        }
+
+        // Build ghost card deck.
+        let deck = Self::build_deck(rng, variant);
+
+        GameState {
+            variant,
+            figure_count,
+            node_states,
+            edge_states,
+            figure_pos,
+            figure_carries: [None; MAX_FIGURES],
+            jewel_deposited: [false; JEWEL_COUNT],
+            jewel_number,
+            next_required_jewel,
+            spuk_count: 0,
+            deck,
+            active_figure: 0,
+            phase: TurnPhase::RollDie,
+            die_roll: 0,
+            moves_remaining: 0,
+            game_over: false,
+            players_won: false,
+        }
+    }
+
+    fn build_deck(rng: &mut StdRng, variant: Variant) -> GhostDeck {
+        // Base deck: one card per room A–L (12 cards) + Reshuffle + filler rooms.
+        // The actual GGS base deck has ~19 cards (rooms + Reshuffle).
+        // We approximate: 1× each room A–L = 12, plus one Reshuffle = 13 base cards.
+        // Remaining slots up to the array size are filled with room cards (B, D, E duplicates).
+        let mut cards: [GhostCard; MAX_GHOST_CARDS] = [GhostCard::Room(RoomLabel::A); MAX_GHOST_CARDS];
+        let base_rooms = [
+            RoomLabel::A, RoomLabel::B, RoomLabel::C, RoomLabel::D,
+            RoomLabel::E, RoomLabel::F, RoomLabel::G, RoomLabel::H,
+            RoomLabel::I, RoomLabel::J, RoomLabel::K, RoomLabel::L,
+        ];
+        let mut idx = 0usize;
+        for &r in &base_rooms {
+            cards[idx] = GhostCard::Room(r);
+            idx += 1;
+        }
+        cards[idx] = GhostCard::Reshuffle;
+        idx += 1;
+        // Fill to 19 with duplicate room cards (E, G, J — common GGS rooms).
+        let extras = [RoomLabel::E, RoomLabel::G, RoomLabel::J,
+                      RoomLabel::B, RoomLabel::D, RoomLabel::K];
+        for &r in &extras {
+            if idx >= 19 { break; }
+            cards[idx] = GhostCard::Room(r);
+            idx += 1;
+        }
+        let mut size = 19usize;
+
+        // Add advanced cards.
+        if variant.draw_two_card && size < MAX_GHOST_CARDS {
+            cards[size] = GhostCard::DrawTwo;
+            size += 1;
+        }
+        if variant.draw_three_card && size < MAX_GHOST_CARDS {
+            cards[size] = GhostCard::DrawThree;
+            size += 1;
+        }
+        if variant.door_cards && size + 1 < MAX_GHOST_CARDS {
+            cards[size] = GhostCard::BlueDoors;
+            cards[size + 1] = GhostCard::GreenDoors;
+            size += 2;
+        }
+
+        cards[..size].shuffle(rng);
+        GhostDeck {
+            cards,
+            top: 0,
+            size: size as u8,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Top-level simulation function (rayon-friendly)
+// ---------------------------------------------------------------------------
+
+/// Play one complete game to termination with the provided strategies.
+/// `strategies[i]` controls figure `i`. Must have `figure_count` entries.
+pub fn simulate_one_game<S>(
+    seed: u64,
+    variant: Variant,
+    figure_count: u8,
+    strategies: &mut [S],
+) -> GameResult
+where
+    S: Strategy,
+{
+    let mut game = Game::new(seed, variant, figure_count);
+    let mut turns: u32 = 0;
+    let mut action_buf = Vec::with_capacity(8);
+
+    for s in strategies.iter_mut() {
+        s.on_game_start(0, variant);
+    }
+
+    loop {
+        game.legal_actions_into(&mut action_buf);
+        if action_buf.is_empty() || game.is_finished() {
+            break;
+        }
+
+        // RollDie and DrawGhostCard are auto-resolved (single legal action).
+        let action = if action_buf.len() == 1
+            && matches!(action_buf[0], Action::RollDie | Action::DrawGhostCard | Action::EndTurn)
+        {
+            action_buf[0]
+        } else {
+            let fig = game.state.active_figure as usize;
+            let view = crate::observation::PlayerView::from_state(
+                &game.state,
+                game.state.active_figure,
+                &action_buf,
+            );
+            strategies[fig % strategies.len()].choose_action(&view)
+        };
+
+        if matches!(action, Action::EndTurn) {
+            turns += 1;
+        }
+        let result = game.step(action);
+        if matches!(result, StepResult::Win | StepResult::Loss) {
+            break;
+        }
+    }
+
+    let won = game.state.players_won;
+    let spuk = game.state.spuk_count;
+    let jewels = game.state.jewel_deposited.iter().filter(|&&d| d).count() as u8;
+
+    for s in strategies.iter_mut() {
+        s.on_game_end(won);
+    }
+
+    GameResult {
+        won,
+        turns_taken: turns,
+        spuk_placed: spuk,
+        jewels_deposited: jewels,
+    }
+}

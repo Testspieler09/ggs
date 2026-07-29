@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "ggs-core",
+    "ggs-strategy",
+    "simulate",
+    "bench",
+    "train",
+]
+
+[workspace.dependencies]
+rand     = "0.9"
+serde    = { version = "1", features = ["derive"] }
+rayon    = "1.10"
+criterion = { version = "0.5", features = ["html_reports"] }
+clap     = { version = "4", features = ["derive"] }

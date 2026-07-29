@@ -1,0 +1,11 @@
+[package]
+name    = "simulate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ggs-core     = { path = "../ggs-core" }
+ggs-strategy = { path = "../ggs-strategy" }
+clap         = { workspace = true }
+rayon        = { workspace = true }
+serde        = { workspace = true }

@@ -1,0 +1,13 @@
+[package]
+name    = "bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ggs-core     = { path = "../ggs-core" }
+ggs-strategy = { path = "../ggs-strategy" }
+criterion    = { workspace = true }
+
+[[bench]]
+name    = "simulation"
+harness = false

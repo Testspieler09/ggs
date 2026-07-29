@@ -1,0 +1,10 @@
+[package]
+name    = "ggs-strategy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ggs-core = { path = "../ggs-core" }
+rand     = { workspace = true }
+rayon    = { workspace = true }
+serde    = { workspace = true }

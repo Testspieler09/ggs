@@ -1,0 +1,9 @@
+[package]
+name    = "train"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ggs-core     = { path = "../ggs-core" }
+ggs-strategy = { path = "../ggs-strategy" }
+rayon        = { workspace = true }

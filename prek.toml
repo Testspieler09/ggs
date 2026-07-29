@@ -1,0 +1,30 @@
+[[repos]]
+repo = "local"
+
+  [[repos.hooks]]
+  id = "cargo-fmt"
+  name = "cargo fmt check"
+  entry = "scripts/cargo-fmt.sh"
+  language = "system"
+  pass_filenames = false
+
+  [[repos.hooks]]
+  id = "cargo-clippy"
+  name = "cargo clippy"
+  entry = "scripts/cargo-clippy.sh"
+  language = "system"
+  pass_filenames = false
+
+  [[repos.hooks]]
+  id = "cargo-check"
+  name = "cargo check"
+  entry = "scripts/cargo-check.sh"
+  language = "system"
+  pass_filenames = false
+
+  [[repos.hooks]]
+  id = "cargo-test"
+  name = "cargo test"
+  entry = "scripts/cargo-test.sh"
+  language = "system"
+  pass_filenames = false
