@@ -1,3 +1,6 @@
+use std::io::{self, Read, Write};
+use std::path::Path;
+
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rand::seq::SliceRandom;
@@ -622,5 +625,253 @@ where
         turns_taken: turns,
         spuk_placed: spuk,
         jewels_deposited: jewels,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Game log (replay)
+// ---------------------------------------------------------------------------
+
+/// A complete record of one game: seed + every action taken in order.
+/// Because the engine is fully deterministic, replaying with the same seed
+/// and the same action sequence reproduces the identical game.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameLog {
+    pub seed: u64,
+    pub variant: Variant,
+    pub figure_count: u8,
+    pub actions: Vec<Action>,
+}
+
+impl GameLog {
+    /// Save to a binary file (hand-rolled, no extra dependency).
+    ///
+    /// Format:
+    /// ```text
+    /// [8]  seed: u64 le
+    /// [1]  figure_count: u8
+    /// [1]  variant flags: bit0=draw_two, bit1=draw_three, bit2=door_cards, bit3=numbered
+    /// [4]  action_count: u32 le
+    /// per action:
+    ///   [1] tag
+    ///   [1] payload byte (only for MoveAlongEdge and PickupJewel)
+    /// ```
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(&self.seed.to_le_bytes())?;
+        file.write_all(&[self.figure_count])?;
+        let v = &self.variant;
+        let flags: u8 = (v.draw_two_card as u8)
+            | ((v.draw_three_card as u8) << 1)
+            | ((v.door_cards as u8) << 2)
+            | ((v.numbered_jewels as u8) << 3);
+        file.write_all(&[flags])?;
+        file.write_all(&(self.actions.len() as u32).to_le_bytes())?;
+        for &action in &self.actions {
+            encode_action(&mut file, action)?;
+        }
+        Ok(())
+    }
+
+    /// Load from a binary file written by `save`.
+    pub fn load(path: &Path) -> io::Result<GameLog> {
+        let mut file = std::fs::File::open(path)?;
+        let mut buf8 = [0u8; 8];
+        file.read_exact(&mut buf8)?;
+        let seed = u64::from_le_bytes(buf8);
+        let mut buf1 = [0u8; 1];
+        file.read_exact(&mut buf1)?;
+        let figure_count = buf1[0];
+        file.read_exact(&mut buf1)?;
+        let flags = buf1[0];
+        let variant = Variant {
+            draw_two_card:   flags & 0x01 != 0,
+            draw_three_card: flags & 0x02 != 0,
+            door_cards:      flags & 0x04 != 0,
+            numbered_jewels: flags & 0x08 != 0,
+        };
+        let mut buf4 = [0u8; 4];
+        file.read_exact(&mut buf4)?;
+        let count = u32::from_le_bytes(buf4) as usize;
+        let mut actions = Vec::with_capacity(count);
+        for _ in 0..count {
+            actions.push(decode_action(&mut file)?);
+        }
+        Ok(GameLog { seed, variant, figure_count, actions })
+    }
+}
+
+fn encode_action(w: &mut impl Write, action: Action) -> io::Result<()> {
+    match action {
+        Action::RollDie                   => w.write_all(&[0x00]),
+        Action::DrawGhostCard             => w.write_all(&[0x01]),
+        Action::MoveAlongEdge { edge }    => w.write_all(&[0x02, edge]),
+        Action::StopMoving                => w.write_all(&[0x03]),
+        Action::PickupJewel { jewel }     => w.write_all(&[0x04, jewel]),
+        Action::SkipPickup                => w.write_all(&[0x05]),
+        Action::DepositJewel              => w.write_all(&[0x06]),
+        Action::Fight                     => w.write_all(&[0x07]),
+        Action::SkipCombat                => w.write_all(&[0x08]),
+        Action::EndTurn                   => w.write_all(&[0x09]),
+    }
+}
+
+fn decode_action(r: &mut impl Read) -> io::Result<Action> {
+    let mut tag = [0u8; 1];
+    r.read_exact(&mut tag)?;
+    Ok(match tag[0] {
+        0x00 => Action::RollDie,
+        0x01 => Action::DrawGhostCard,
+        0x02 => { let mut b = [0u8; 1]; r.read_exact(&mut b)?; Action::MoveAlongEdge { edge: b[0] } }
+        0x03 => Action::StopMoving,
+        0x04 => { let mut b = [0u8; 1]; r.read_exact(&mut b)?; Action::PickupJewel { jewel: b[0] } }
+        0x05 => Action::SkipPickup,
+        0x06 => Action::DepositJewel,
+        0x07 => Action::Fight,
+        0x08 => Action::SkipCombat,
+        0x09 => Action::EndTurn,
+        tag  => return Err(io::Error::new(io::ErrorKind::InvalidData,
+                    format!("unknown action tag 0x{tag:02x}"))),
+    })
+}
+
+/// Play one game and record every action taken (including auto-resolved ones).
+pub fn simulate_one_game_logged<S>(
+    seed: u64,
+    variant: Variant,
+    figure_count: u8,
+    strategies: &mut [S],
+) -> (GameResult, GameLog)
+where
+    S: Strategy,
+{
+    let mut game = Game::new(seed, variant, figure_count);
+    let mut turns: u32 = 0;
+    let mut action_buf = Vec::with_capacity(8);
+    let mut log_actions: Vec<Action> = Vec::new();
+
+    for s in strategies.iter_mut() {
+        s.on_game_start(0, variant);
+    }
+
+    loop {
+        game.legal_actions_into(&mut action_buf);
+        if action_buf.is_empty() || game.is_finished() {
+            break;
+        }
+
+        let action = if action_buf.len() == 1
+            && matches!(action_buf[0], Action::RollDie | Action::DrawGhostCard | Action::EndTurn)
+        {
+            action_buf[0]
+        } else {
+            let fig = game.state.active_figure as usize;
+            let view = crate::observation::PlayerView::from_state(
+                &game.state,
+                game.state.active_figure,
+                &action_buf,
+            );
+            strategies[fig % strategies.len()].choose_action(&view)
+        };
+
+        log_actions.push(action);
+        if matches!(action, Action::EndTurn) {
+            turns += 1;
+        }
+        let result = game.step(action);
+        if matches!(result, StepResult::Win | StepResult::Loss) {
+            break;
+        }
+    }
+
+    let won = game.state.players_won;
+    let spuk = game.state.spuk_count;
+    let jewels = game.state.jewel_deposited.iter().filter(|&&d| d).count() as u8;
+
+    for s in strategies.iter_mut() {
+        s.on_game_end(won);
+    }
+
+    let result = GameResult { won, turns_taken: turns, spuk_placed: spuk, jewels_deposited: jewels };
+    let log = GameLog { seed, variant, figure_count, actions: log_actions };
+    (result, log)
+}
+
+/// Replay a recorded game by replaying the exact action sequence from `log`.
+/// Returns the `GameResult` produced by replay (should match the original).
+///
+/// Panics in debug mode if any recorded action is illegal (indicates log corruption).
+pub fn replay(log: &GameLog) -> GameResult {
+    let mut game = Game::new(log.seed, log.variant, log.figure_count);
+    let mut turns: u32 = 0;
+    let mut action_buf = Vec::with_capacity(8);
+
+    for &action in &log.actions {
+        game.legal_actions_into(&mut action_buf);
+        debug_assert!(
+            action_buf.contains(&action),
+            "replay: action {action:?} not legal in phase {:?}",
+            game.state.phase
+        );
+        if matches!(action, Action::EndTurn) {
+            turns += 1;
+        }
+        let result = game.step(action);
+        if matches!(result, StepResult::Win | StepResult::Loss) {
+            break;
+        }
+    }
+
+    let won = game.state.players_won;
+    let spuk = game.state.spuk_count;
+    let jewels = game.state.jewel_deposited.iter().filter(|&&d| d).count() as u8;
+    GameResult { won, turns_taken: turns, spuk_placed: spuk, jewels_deposited: jewels }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::variant::Variant;
+
+    #[derive(Clone)]
+    struct FirstActionStrategy;
+    impl crate::strategy_trait::Strategy for FirstActionStrategy {
+        fn choose_action(&self, view: &crate::observation::PlayerView) -> Action {
+            view.legal_actions[0]
+        }
+    }
+
+    #[test]
+    fn replay_matches_original() {
+        for seed in 0u64..20 {
+            let mut strats = vec![FirstActionStrategy; 4];
+            let (original, log) = simulate_one_game_logged(seed, Variant::BASE, 4, &mut strats);
+            let replayed = replay(&log);
+            assert_eq!(original, replayed, "seed={seed}: replay result differs from original");
+        }
+    }
+
+    #[test]
+    fn log_roundtrip() {
+        let mut strats = vec![FirstActionStrategy; 4];
+        let (_, log) = simulate_one_game_logged(42, Variant::BASE, 4, &mut strats);
+        let dir = std::env::temp_dir();
+        let path = dir.join("ggs_test_log.bin");
+        log.save(&path).expect("save failed");
+        let loaded = GameLog::load(&path).expect("load failed");
+        std::fs::remove_file(&path).ok();
+        assert_eq!(log.seed, loaded.seed);
+        assert_eq!(log.figure_count, loaded.figure_count);
+        assert_eq!(log.variant, loaded.variant);
+        assert_eq!(log.actions, loaded.actions);
+        // Also verify the loaded log replays correctly.
+        let replayed = replay(&loaded);
+        let mut strats2 = vec![FirstActionStrategy; 4];
+        let (original, _) = simulate_one_game_logged(42, Variant::BASE, 4, &mut strats2);
+        assert_eq!(original, replayed);
     }
 }

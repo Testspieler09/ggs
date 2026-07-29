@@ -1,7 +1,8 @@
 use clap::Parser;
 use rayon::prelude::*;
+use std::path::PathBuf;
 
-use ggs_core::engine::{simulate_one_game, GameResult};
+use ggs_core::engine::{simulate_one_game, simulate_one_game_logged, GameResult};
 use ggs_core::variant::Variant;
 use ggs_strategy::greedy::GreedyStrategy;
 use ggs_strategy::mcts::MctsStrategy;
@@ -29,6 +30,10 @@ struct Cli {
     /// Number of figures (3 or 4).
     #[arg(long, default_value_t = 4)]
     figures: u8,
+
+    /// Save a replay log to this file (only used when --games 1).
+    #[arg(long)]
+    log: Option<PathBuf>,
 }
 
 fn main() {
@@ -38,32 +43,19 @@ fn main() {
     let figures = cli.figures;
     let base_seed = cli.seed;
     let n = cli.games;
+    let log_path = cli.log.clone();
+
+    // --log is only meaningful for a single game.
+    if log_path.is_some() && n != 1 {
+        eprintln!("Warning: --log is ignored when --games > 1");
+    }
 
     let results: Vec<GameResult> = (0..n)
         .into_par_iter()
         .map(|i| {
             let game_seed = base_seed + i;
-            match strategy.as_str() {
-                "random" => {
-                    let mut strats: Vec<RandomStrategyMut> = (0..figures)
-                        .map(|f| RandomStrategyMut::new(game_seed.wrapping_add(f as u64).wrapping_mul(0x9e3779b97f4a7c15)))
-                        .collect();
-                    simulate_one_game(game_seed, variant, figures, &mut strats)
-                }
-                "mcts" => {
-                    let mut strats: Vec<MctsStrategy> = (0..figures)
-                        .map(|_| MctsStrategy::new(100, std::f32::consts::SQRT_2))
-                        .collect();
-                    simulate_one_game(game_seed, variant, figures, &mut strats)
-                }
-                _ => {
-                    // greedy (default)
-                    let mut strats: Vec<GreedyStrategy> = (0..figures)
-                        .map(|_| GreedyStrategy::new())
-                        .collect();
-                    simulate_one_game(game_seed, variant, figures, &mut strats)
-                }
-            }
+            let want_log = log_path.is_some() && i == 0 && n == 1;
+            run_game(game_seed, variant, figures, &strategy, want_log, &log_path)
         })
         .collect();
 
@@ -82,6 +74,63 @@ fn parse_variant(s: &str) -> Variant {
         "doors"    => Variant { door_cards: true,     ..Variant::BASE },
         "numbered" => Variant { numbered_jewels: true, ..Variant::BASE },
         _          => Variant::BASE,
+    }
+}
+
+fn run_game(
+    seed: u64,
+    variant: Variant,
+    figures: u8,
+    strategy: &str,
+    save_log: bool,
+    log_path: &Option<PathBuf>,
+) -> GameResult {
+    match strategy {
+        "random" => {
+            let mut strats: Vec<RandomStrategyMut> = (0..figures)
+                .map(|f| RandomStrategyMut::new(seed.wrapping_add(f as u64).wrapping_mul(0x9e3779b97f4a7c15)))
+                .collect();
+            if save_log {
+                let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);
+                if let Some(path) = log_path {
+                    log.save(path).expect("failed to save replay log");
+                    println!("Replay saved to {}", path.display());
+                }
+                result
+            } else {
+                simulate_one_game(seed, variant, figures, &mut strats)
+            }
+        }
+        "mcts" => {
+            let mut strats: Vec<MctsStrategy> = (0..figures)
+                .map(|_| MctsStrategy::new(100, std::f32::consts::SQRT_2))
+                .collect();
+            if save_log {
+                let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);
+                if let Some(path) = log_path {
+                    log.save(path).expect("failed to save replay log");
+                    println!("Replay saved to {}", path.display());
+                }
+                result
+            } else {
+                simulate_one_game(seed, variant, figures, &mut strats)
+            }
+        }
+        _ => {
+            let mut strats: Vec<GreedyStrategy> = (0..figures)
+                .map(|_| GreedyStrategy::new())
+                .collect();
+            if save_log {
+                let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);
+                if let Some(path) = log_path {
+                    log.save(path).expect("failed to save replay log");
+                    println!("Replay saved to {}", path.display());
+                }
+                result
+            } else {
+                simulate_one_game(seed, variant, figures, &mut strats)
+            }
+        }
     }
 }
 

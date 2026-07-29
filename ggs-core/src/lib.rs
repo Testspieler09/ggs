@@ -9,7 +9,7 @@ pub mod variant;
 
 pub mod prelude {
     pub use crate::action::Action;
-    pub use crate::engine::{Game, GameResult, StepResult};
+    pub use crate::engine::{Game, GameLog, GameResult, StepResult};
     pub use crate::observation::PlayerView;
     pub use crate::state::GameState;
     pub use crate::strategy_trait::Strategy;
