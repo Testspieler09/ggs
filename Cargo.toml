@@ -4,7 +4,6 @@ members = [
     "ggs-core",
     "ggs-strategy",
     "simulate",
-    "bench",
     "train",
 ]
 

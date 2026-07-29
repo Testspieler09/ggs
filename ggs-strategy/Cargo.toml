@@ -8,3 +8,10 @@ ggs-core = { path = "../ggs-core" }
 rand     = { workspace = true }
 rayon    = { workspace = true }
 serde    = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name    = "simulation"
+harness = false

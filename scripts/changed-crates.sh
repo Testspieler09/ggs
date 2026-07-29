@@ -6,7 +6,7 @@ set -euo pipefail
 CHANGED_FILES=$(git diff --cached --name-only 2>/dev/null || true)
 
 # Ordered list of workspace members (dependency order).
-CRATES="ggs-core ggs-strategy simulate bench train"
+CRATES="ggs-core ggs-strategy simulate train"
 
 # Returns 1 if the given crate has staged files.
 crate_changed() {
@@ -20,7 +20,7 @@ crate_changed() {
 # ggs-strategy / simulate / bench / train all depend on ggs-core.
 depends_on_core() {
   case "$1" in
-    ggs-strategy|simulate|bench|train) return 0 ;;
+    ggs-strategy|simulate|train) return 0 ;;
     *) return 1 ;;
   esac
 }
