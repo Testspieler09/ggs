@@ -73,6 +73,24 @@ pub struct Game {
     rng: StdRng,
 }
 
+/// Returns the next room label in alphabetical order, wrapping L → A.
+fn next_room(room: RoomLabel) -> RoomLabel {
+    match room {
+        RoomLabel::A => RoomLabel::B,
+        RoomLabel::B => RoomLabel::C,
+        RoomLabel::C => RoomLabel::D,
+        RoomLabel::D => RoomLabel::E,
+        RoomLabel::E => RoomLabel::F,
+        RoomLabel::F => RoomLabel::G,
+        RoomLabel::G => RoomLabel::H,
+        RoomLabel::H => RoomLabel::I,
+        RoomLabel::I => RoomLabel::J,
+        RoomLabel::J => RoomLabel::K,
+        RoomLabel::K => RoomLabel::L,
+        RoomLabel::L => RoomLabel::A,
+    }
+}
+
 impl Game {
     pub fn new(seed: u64, variant: Variant, figure_count: u8) -> Self {
         assert!(
@@ -244,18 +262,14 @@ impl Game {
         self.state.figure_pos[fig] = dest;
         self.state.moves_remaining -= 1;
 
-        // Reveal jewel number if entering a room in numbered-jewel variant.
+        // In the numbered-jewel variant, reveal the jewel number the first time a figure
+        // enters a room that has one (jewel_number == 0 means not yet revealed).
         if self.state.variant.numbered_jewels {
             if let Some(jewel_id) = self.state.node_states[dest as usize].jewel {
-                // jewel_number == 0 means not yet revealed.
                 if self.state.jewel_number[jewel_id as usize] == 0 {
-                    // Assign the next unrevealed number. The true assignment was
-                    // made at setup; this flag just controls visibility in PlayerView.
-                    // The actual number is already stored; set visibility by marking it > 0.
-                    // (It was stored as a shuffled permutation at setup, never 0 there.)
+                    self.state.jewel_number[jewel_id as usize] =
+                        self.state.node_states[dest as usize].jewel_number;
                 }
-                // Numbers are pre-assigned at setup and stored in jewel_number.
-                // Visibility is implicit: a strategy reading jewel_number[id] > 0 sees it.
             }
         }
 
@@ -269,16 +283,11 @@ impl Game {
     fn advance_from_move(&mut self) {
         let fig = self.state.active_figure as usize;
         let pos = self.state.figure_pos[fig];
-        // If at entrance and carrying a jewel, allow deposit before pickup/combat.
-        if pos == ENTRANCE && self.state.figure_carries[fig].is_some() {
-            self.state.phase = TurnPhase::PickupJewel;
-            return;
-        }
         let in_room = matches!(NODES[pos as usize].kind, NodeKind::Room(_));
-        if in_room {
+        if in_room || (pos == ENTRANCE && self.state.figure_carries[fig].is_some()) {
             self.state.phase = TurnPhase::PickupJewel;
         } else {
-            self.state.phase = TurnPhase::Combat;
+            self.state.phase = TurnPhase::EndTurn;
         }
     }
 
@@ -411,18 +420,25 @@ impl Game {
 
     /// Place one ghost figure in `room`. Returns `true` if this caused the 6th Spuk.
     pub(crate) fn place_ghost_in(&mut self, room: RoomLabel) -> bool {
-        let node = room_node(room) as usize;
-        let ns = &mut self.state.node_states[node];
-
-        if ns.has_spuk {
-            // Room already haunted; ghost goes on top (count towards possible future rule extension).
-            // Per base rules: ignore additional ghosts if Spuk present.
-            return false;
+        // If the target room already has a Spuk, redirect to the next room alphabetically
+        // (wrapping A→B→…→L→A) until a non-Spuk room is found.
+        let mut target = room;
+        loop {
+            let node = room_node(target) as usize;
+            if !self.state.node_states[node].has_spuk {
+                break;
+            }
+            target = next_room(target);
+            if target == room {
+                // All 12 rooms have Spuk — game should already be lost, but guard anyway.
+                return self.state.spuk_count >= MAX_SPUK;
+            }
         }
 
+        let node = room_node(target) as usize;
+        let ns = &mut self.state.node_states[node];
         ns.ghosts += 1;
         if ns.ghosts >= crate::state::MAX_GHOSTS_BEFORE_SPUK {
-            // 3rd ghost triggers Spuk conversion.
             ns.ghosts = 0;
             ns.has_spuk = true;
             self.state.spuk_count += 1;
@@ -483,7 +499,7 @@ impl Game {
         }
 
         // Place jewels in jewel rooms.
-        let mut jewel_number = [0u8; JEWEL_COUNT];
+        let jewel_number = [0u8; JEWEL_COUNT];
         let mut next_required_jewel = 1u8;
 
         // Assign jewel IDs 0..7 to the 8 jewel rooms.
@@ -492,11 +508,14 @@ impl Game {
             node_states[room_node(room) as usize].jewel = Some(jewel_id as u8);
         }
 
-        // In numbered-jewel variant, assign a shuffled permutation 1..=8.
+        // In numbered-jewel variant, assign a shuffled permutation 1..=8 into each room's
+        // NodeState. jewel_number in GameState stays all-zeros until figures enter rooms.
         if variant.numbered_jewels {
             let mut numbers: [u8; JEWEL_COUNT] = [1, 2, 3, 4, 5, 6, 7, 8];
             numbers.shuffle(rng);
-            jewel_number = numbers;
+            for (jewel_id, &room) in jewel_rooms.iter().enumerate() {
+                node_states[room_node(room) as usize].jewel_number = numbers[jewel_id];
+            }
             next_required_jewel = 1;
         }
 
@@ -889,6 +908,8 @@ pub fn replay(log: &GameLog) -> GameResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::{H1, ROOM_A, ROOM_B, ROOM_C};
+    use crate::rules;
     use crate::variant::Variant;
 
     #[derive(Clone)]
@@ -897,6 +918,10 @@ mod tests {
         fn choose_action(&self, view: &crate::observation::PlayerView) -> Action {
             view.legal_actions[0]
         }
+    }
+
+    fn make_game(seed: u64) -> Game {
+        Game::new(seed, Variant::BASE, 4)
     }
 
     #[test]
@@ -925,10 +950,271 @@ mod tests {
         assert_eq!(log.figure_count, loaded.figure_count);
         assert_eq!(log.variant, loaded.variant);
         assert_eq!(log.actions, loaded.actions);
-        // Also verify the loaded log replays correctly.
         let replayed = replay(&loaded);
         let mut strats2 = vec![FirstActionStrategy; 4];
         let (original, _) = simulate_one_game_logged(42, Variant::BASE, 4, &mut strats2);
         assert_eq!(original, replayed);
+    }
+
+    // --- Deck composition ---
+
+    #[test]
+    fn base_deck_has_13_cards() {
+        let game = make_game(0);
+        assert_eq!(game.state.deck.size, 13);
+    }
+
+    #[test]
+    fn advanced_deck_has_19_cards() {
+        let game = Game::new(0, Variant::ADVANCED, 4);
+        assert_eq!(game.state.deck.size, 19);
+    }
+
+    #[test]
+    fn base_deck_has_no_advanced_cards() {
+        let game = make_game(0);
+        let cards = &game.state.deck.cards[..game.state.deck.size as usize];
+        for card in cards {
+            assert!(
+                !matches!(
+                    card,
+                    GhostCard::DrawTwo
+                        | GhostCard::DrawThree
+                        | GhostCard::BlueDoors
+                        | GhostCard::GreenDoors
+                ),
+                "base deck should not contain advanced card: {card:?}"
+            );
+        }
+    }
+
+    // --- Setup correctness ---
+
+    #[test]
+    fn starting_ghosts_in_correct_rooms() {
+        use crate::board::room_node;
+        let game = make_game(0);
+        for &room in &crate::board::RoomLabel::STARTS_WITH_GHOST {
+            let ns = &game.state.node_states[room_node(room) as usize];
+            assert_eq!(ns.ghosts, 1, "room {room:?} should start with 1 ghost");
+        }
+    }
+
+    #[test]
+    fn starting_jewels_in_correct_rooms() {
+        use crate::board::room_node;
+        let game = make_game(0);
+        for &room in &crate::board::RoomLabel::STARTS_WITH_JEWEL {
+            let ns = &game.state.node_states[room_node(room) as usize];
+            assert!(
+                ns.jewel.is_some(),
+                "room {room:?} should start with a jewel"
+            );
+        }
+    }
+
+    // --- Ghost overflow: redirect to next alphabetical room ---
+
+    #[test]
+    fn ghost_skips_spuk_room_and_goes_to_next() {
+        let mut game = make_game(0);
+        // Force room A into Spuk state.
+        game.state.node_states[ROOM_A as usize].ghosts = 0;
+        game.state.node_states[ROOM_A as usize].has_spuk = true;
+        game.state.spuk_count = 1;
+        // Place a ghost targeting room A — should redirect to B.
+        game.place_ghost_in(crate::board::RoomLabel::A);
+        assert_eq!(
+            game.state.node_states[ROOM_A as usize].ghosts, 0,
+            "A should still have 0 ghosts"
+        );
+        assert_eq!(
+            game.state.node_states[ROOM_B as usize].ghosts, 1,
+            "ghost should land in B"
+        );
+    }
+
+    #[test]
+    fn ghost_wraps_from_l_to_a() {
+        let mut game = make_game(0);
+        // Spuk all rooms B–L, leave A free.
+        for room in [
+            crate::board::RoomLabel::B,
+            crate::board::RoomLabel::C,
+            crate::board::RoomLabel::D,
+            crate::board::RoomLabel::E,
+            crate::board::RoomLabel::F,
+            crate::board::RoomLabel::G,
+            crate::board::RoomLabel::H,
+            crate::board::RoomLabel::I,
+            crate::board::RoomLabel::J,
+            crate::board::RoomLabel::K,
+            crate::board::RoomLabel::L,
+        ] {
+            game.state.node_states[crate::board::room_node(room) as usize].has_spuk = true;
+        }
+        game.state.spuk_count = 11;
+        game.state.node_states[ROOM_A as usize].has_spuk = false;
+        game.state.node_states[ROOM_A as usize].ghosts = 0;
+        // Place ghost targeting L — should wrap around and land in A.
+        game.place_ghost_in(crate::board::RoomLabel::L);
+        assert_eq!(
+            game.state.node_states[ROOM_A as usize].ghosts, 1,
+            "ghost should wrap to A"
+        );
+    }
+
+    // --- Loss condition: 6 Spuk ---
+
+    #[test]
+    fn six_spuk_triggers_loss() {
+        let mut game = make_game(0);
+        game.state.spuk_count = 5;
+        // Place 3 ghosts in room C (which starts with 1) to trigger the 6th Spuk.
+        game.state.node_states[ROOM_C as usize].ghosts = 2;
+        game.place_ghost_in(crate::board::RoomLabel::C);
+        assert!(rules::is_loss(&game.state));
+    }
+
+    // --- Hallway pass-through ---
+
+    #[test]
+    fn can_move_into_occupied_hallway() {
+        let mut game = make_game(0);
+        // Put figure 0 at H1, figure 1 also at H1 (to occupy it), figure 0 starts at entrance.
+        // Actually place figure 1 at H1 so figure 0 can move through it.
+        game.state.node_states[ENTRANCE as usize].remove_figure(1);
+        game.state.node_states[H1 as usize].add_figure(1);
+        game.state.figure_pos[1] = H1;
+        // Set up figure 0 to be in Move phase at entrance.
+        game.state.active_figure = 0;
+        game.state.phase = crate::state::TurnPhase::Move;
+        game.state.moves_remaining = 3;
+        let actions = game.legal_actions();
+        // Edge 0 connects Entrance→H1; H1 is occupied but should still be reachable.
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::MoveAlongEdge { edge: 0 })),
+            "should be able to move into occupied hallway cell H1"
+        );
+    }
+
+    #[test]
+    fn cannot_stop_on_occupied_hallway() {
+        let mut game = make_game(0);
+        // Move figure 0 to H1, occupy H1 with figure 1 too.
+        game.state.node_states[ENTRANCE as usize].remove_figure(0);
+        game.state.node_states[ENTRANCE as usize].remove_figure(1);
+        game.state.node_states[H1 as usize].add_figure(0);
+        game.state.node_states[H1 as usize].add_figure(1);
+        game.state.figure_pos[0] = H1;
+        game.state.figure_pos[1] = H1;
+        game.state.active_figure = 0;
+        game.state.phase = crate::state::TurnPhase::Move;
+        game.state.moves_remaining = 3;
+        let actions = game.legal_actions();
+        assert!(
+            !actions.contains(&Action::StopMoving),
+            "StopMoving should be illegal when on an occupied hallway cell"
+        );
+    }
+
+    // --- Spuk-trap ---
+
+    #[test]
+    fn figure_with_jewel_cannot_leave_spuk_room() {
+        let mut game = make_game(0);
+        // Put figure 0 in room A carrying a jewel, and add Spuk to room A.
+        game.state.node_states[ENTRANCE as usize].remove_figure(0);
+        game.state.node_states[ROOM_A as usize].add_figure(0);
+        game.state.node_states[ROOM_A as usize].has_spuk = true;
+        game.state.node_states[ROOM_A as usize].jewel = None;
+        game.state.figure_pos[0] = ROOM_A;
+        game.state.figure_carries[0] = Some(0);
+        game.state.spuk_count = 1;
+        game.state.active_figure = 0;
+        game.state.phase = crate::state::TurnPhase::Move;
+        game.state.moves_remaining = 3;
+        let actions = game.legal_actions();
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::MoveAlongEdge { .. })),
+            "figure carrying a jewel should have no move edges out of a Spuk room"
+        );
+    }
+
+    // --- Jewel number revelation (advanced variant) ---
+
+    #[test]
+    fn jewel_number_hidden_before_entering_room() {
+        let game = Game::new(0, Variant::ADVANCED, 4);
+        // At setup, all jewel numbers should be 0 (unrevealed) in GameState.jewel_number.
+        assert!(
+            game.state.jewel_number.iter().all(|&n| n == 0),
+            "jewel numbers should all be hidden at start"
+        );
+    }
+
+    #[test]
+    fn jewel_number_revealed_on_room_entry() {
+        use crate::board::room_node;
+        let mut game = Game::new(0, Variant::ADVANCED, 4);
+        // Find the first jewel room that has a jewel still in it.
+        let target_room = crate::board::RoomLabel::STARTS_WITH_JEWEL[0];
+        let target_node = room_node(target_room);
+        let jewel_id = game.state.node_states[target_node as usize].jewel.unwrap();
+        let true_number = game.state.node_states[target_node as usize].jewel_number;
+        assert!(true_number > 0, "hidden number should be set at setup");
+        // Teleport figure 0 into the room.
+        game.state.node_states[ENTRANCE as usize].remove_figure(0);
+        game.state.node_states[target_node as usize].add_figure(0);
+        game.state.figure_pos[0] = target_node;
+        // Simulate arrival by calling move_figure indirectly — just trigger the reveal
+        // by entering the room via a direct state manipulation followed by the reveal logic.
+        // We test the reveal by checking jewel_number after moving via the engine.
+        // Reset position and do it properly: place at adjacent hallway and move in.
+        // Find an edge that connects to target_node.
+        let entry_edge = crate::board::ADJACENCY
+            .edges_of(target_node)
+            .iter()
+            .copied()
+            .find(|&e| {
+                let other = crate::board::ADJACENCY.other_end(e, target_node);
+                matches!(
+                    crate::board::NODES[other as usize].kind,
+                    crate::board::NodeKind::Hallway
+                )
+            })
+            .expect("room must have a hallway neighbor");
+        let hallway = crate::board::ADJACENCY.other_end(entry_edge, target_node);
+        game.state.node_states[target_node as usize].remove_figure(0);
+        game.state.node_states[hallway as usize].add_figure(0);
+        game.state.figure_pos[0] = hallway;
+        game.state.active_figure = 0;
+        game.state.phase = crate::state::TurnPhase::Move;
+        game.state.moves_remaining = 1;
+        game.step(Action::MoveAlongEdge { edge: entry_edge });
+        assert_eq!(
+            game.state.jewel_number[jewel_id as usize], true_number,
+            "jewel number should be revealed after entering the room"
+        );
+    }
+
+    // --- PlayerView hides unrevealed jewel numbers ---
+
+    #[test]
+    fn player_view_hides_unrevealed_jewel_numbers() {
+        use crate::observation::PlayerView;
+        let game = Game::new(0, Variant::ADVANCED, 4);
+        let legal = game.legal_actions();
+        let view = PlayerView::from_state(&game.state, 0, &legal);
+        for ns in &view.node_states {
+            assert_eq!(
+                ns.jewel_number, 0,
+                "node_states in PlayerView must never expose hidden jewel numbers"
+            );
+        }
     }
 }

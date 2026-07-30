@@ -54,6 +54,13 @@ impl PlayerView {
             [0u8; JEWEL_COUNT]
         };
 
+        // Strip the hidden jewel_number field from node_states so the AI cannot read
+        // unrevealed numbers directly from room state.
+        let mut node_states = state.node_states;
+        for ns in &mut node_states {
+            ns.jewel_number = 0;
+        }
+
         Self {
             figure_id,
             figure_count: state.figure_count,
@@ -62,7 +69,7 @@ impl PlayerView {
             die_roll: state.die_roll,
             figure_positions: state.figure_pos,
             figure_carries: state.figure_carries,
-            node_states: state.node_states,
+            node_states,
             edge_closed,
             spuk_count: state.spuk_count,
             jewel_deposited: state.jewel_deposited,

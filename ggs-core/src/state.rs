@@ -24,6 +24,10 @@ pub struct NodeState {
     pub has_spuk: bool,
     /// Which jewel is in this node, if any.
     pub jewel: Option<JewelId>,
+    /// Pre-assigned number for the jewel in this room (1–8); 0 = no jewel or base variant.
+    /// Hidden from strategies until revealed; the engine copies this into GameState::jewel_number
+    /// when a figure first enters the room.
+    pub(crate) jewel_number: u8,
     /// Bitmask of figures currently here (bit i = FigureId i).
     pub figures: u8,
 }
@@ -155,7 +159,8 @@ pub struct GameState {
     // --- Jewel state ---
     /// Whether each jewel has been safely deposited at the entrance.
     pub jewel_deposited: [bool; JEWEL_COUNT],
-    /// True number (1–8) of each jewel slot; 0 = not yet assigned or not using variant.
+    /// Revealed number (1–8) for each jewel; 0 = not yet revealed.
+    /// Set when a figure first enters the room containing that jewel.
     pub jewel_number: [u8; JEWEL_COUNT],
     /// Next jewel number that must be collected (numbered-jewel variant).
     pub next_required_jewel: u8,
