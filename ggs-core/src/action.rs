@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::board::EdgeId;
 use crate::state::JewelId;
+use serde::{Deserialize, Serialize};
 
 /// Every action a figure can take on its turn.
 /// The engine validates and resolves all actions; strategies pick from `legal_actions`.
@@ -49,15 +49,13 @@ pub enum SymbolFace {
 
 impl SymbolFace {
     /// The six faces of one symbol die.
-    /// Distribution: 2× Ghost, 1× Spuk, 3× Blank — adjust if needed after
-    /// checking the physical dice.
     pub const FACES: [SymbolFace; 6] = [
         SymbolFace::Ghost,
         SymbolFace::Ghost,
+        SymbolFace::Ghost,
+        SymbolFace::Blank,
         SymbolFace::Spuk,
-        SymbolFace::Blank,
-        SymbolFace::Blank,
-        SymbolFace::Blank,
+        SymbolFace::Spuk,
     ];
 }
 

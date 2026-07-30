@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use crate::board::{NodeId, NODE_COUNT, EDGE_COUNT, RoomLabel};
 use crate::variant::Variant;
 
@@ -139,7 +140,9 @@ pub struct GameState {
     pub figure_count: u8,
 
     // --- Board graph runtime state ---
+    #[serde(with = "BigArray")]
     pub node_states: [NodeState; NODE_COUNT],
+    #[serde(with = "BigArray")]
     pub edge_states: [EdgeState; EDGE_COUNT],
 
     // --- Figure positions and inventory ---

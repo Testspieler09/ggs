@@ -3,6 +3,7 @@ use crate::board::{NodeId, EDGE_COUNT, NODE_COUNT};
 use crate::state::{FigureId, GameState, JewelId, NodeState, TurnPhase, JEWEL_COUNT, MAX_FIGURES};
 use crate::variant::Variant;
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 /// A player-visible snapshot of the game state.
 /// Contains no hidden information: deck order is hidden (only count exposed).
@@ -18,8 +19,10 @@ pub struct PlayerView {
     pub figure_positions: [NodeId; MAX_FIGURES],
     pub figure_carries: [Option<JewelId>; MAX_FIGURES],
     /// Per-node state (same layout as GameState).
+    #[serde(with = "BigArray")]
     pub node_states: [NodeState; NODE_COUNT],
     /// Per-edge closed flags.
+    #[serde(with = "BigArray")]
     pub edge_closed: [bool; EDGE_COUNT],
     pub spuk_count: u8,
     pub jewel_deposited: [bool; JEWEL_COUNT],

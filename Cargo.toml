@@ -8,8 +8,9 @@ members = [
 ]
 
 [workspace.dependencies]
-rand     = "0.9"
-serde    = { version = "1", features = ["derive"] }
+rand            = "0.9"
+serde           = { version = "1", features = ["derive"] }
+serde-big-array = "0.5"
 rayon    = "1.10"
 criterion = { version = "0.5", features = ["html_reports"] }
 clap     = { version = "4", features = ["derive"] }
