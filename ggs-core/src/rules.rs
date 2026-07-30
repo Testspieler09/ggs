@@ -155,8 +155,9 @@ pub fn legal_actions_into(state: &GameState, buf: &mut Vec<Action>) {
             let fig = state.active_figure as usize;
             let pos = state.figure_pos[fig];
             // May only stop if not currently on an occupied hallway cell (pass-through rule).
-            let on_occupied_hallway = matches!(crate::board::NODES[pos as usize].kind, NodeKind::Hallway)
-                && state.node_states[pos as usize].figure_count() > 1;
+            let on_occupied_hallway =
+                matches!(crate::board::NODES[pos as usize].kind, NodeKind::Hallway)
+                    && state.node_states[pos as usize].figure_count() > 1;
             if !on_occupied_hallway {
                 buf.push(Action::StopMoving);
                 if state.figure_carries[fig].is_some() && pos == ENTRANCE {
@@ -229,8 +230,9 @@ where
             }
             visited[next as usize] = true;
             // An occupied hallway cell can be traversed but not used as a goal.
-            let occupied_hallway = matches!(crate::board::NODES[next as usize].kind, NodeKind::Hallway)
-                && state.node_states[next as usize].figure_count() > 0;
+            let occupied_hallway =
+                matches!(crate::board::NODES[next as usize].kind, NodeKind::Hallway)
+                    && state.node_states[next as usize].figure_count() > 0;
             if !occupied_hallway && goal(next) {
                 return Some(dist + 1);
             }

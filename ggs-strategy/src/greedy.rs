@@ -12,7 +12,7 @@ use ggs_core::strategy_trait::Strategy;
 /// 3. Fight: skip combat only if no ghosts/Spuk or alone with Spuk.
 /// 4. Move: prefer direction that minimises BFS distance to nearest jewel goal.
 ///    Goal = nearest uncollected jewel room if empty-handed,
-///           or entrance if carrying a jewel.
+///    or entrance if carrying a jewel.
 /// 5. Fall back to first legal action.
 #[derive(Clone)]
 pub struct GreedyStrategy;

@@ -8,7 +8,7 @@ pub type JewelId = u8;
 
 pub const MAX_FIGURES: usize = 4;
 pub const JEWEL_COUNT: usize = 8;
-pub const MAX_GHOST_CARDS: usize = 19;
+pub const GHOST_DECK_CAPACITY: usize = 19;
 pub const MAX_SPUK: u8 = 6;
 pub const MAX_GHOSTS_BEFORE_SPUK: u8 = 3;
 
@@ -75,7 +75,7 @@ pub enum GhostCard {
 /// Cards 0..top have already been drawn (discard pile equivalent).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GhostDeck {
-    pub cards: [GhostCard; MAX_GHOST_CARDS],
+    pub cards: [GhostCard; GHOST_DECK_CAPACITY],
     /// Index of the next card to draw.
     pub top: u8,
     /// Number of cards currently in the deck (changes on reshuffle).

@@ -13,8 +13,8 @@ use crate::board::{
 };
 use crate::rules;
 use crate::state::{
-    EdgeState, GameState, GhostCard, GhostDeck, NodeState, TurnPhase, JEWEL_COUNT, MAX_FIGURES,
-    MAX_GHOST_CARDS, MAX_SPUK,
+    EdgeState, GameState, GhostCard, GhostDeck, NodeState, TurnPhase, GHOST_DECK_CAPACITY,
+    JEWEL_COUNT, MAX_FIGURES, MAX_SPUK,
 };
 use crate::strategy_trait::Strategy;
 use crate::variant::Variant;
@@ -525,13 +525,11 @@ impl Game {
     }
 
     fn build_deck(rng: &mut StdRng, variant: Variant) -> GhostDeck {
-        // Base deck: one card per room A–L (12 cards) + Reshuffle + filler rooms.
-        // The actual GGS base deck has ~19 cards (rooms + Reshuffle).
-        // We approximate: 1× each room A–L = 12, plus one Reshuffle = 13 base cards.
-        // Remaining slots up to the array size are filled with room cards (B, D, E duplicates).
-        let mut cards: [GhostCard; MAX_GHOST_CARDS] =
-            [GhostCard::Room(RoomLabel::A); MAX_GHOST_CARDS];
-        let base_rooms = [
+        // Base deck: 12 room cards (A–L, one each) + 1 Reshuffle = 13 cards.
+        // Advanced deck adds: DrawTwo, DrawThree, 2× BlueDoors, 2× GreenDoors = 6 more → 19 total.
+        let mut cards: [GhostCard; GHOST_DECK_CAPACITY] =
+            [GhostCard::Room(RoomLabel::A); GHOST_DECK_CAPACITY];
+        let rooms = [
             RoomLabel::A,
             RoomLabel::B,
             RoomLabel::C,
@@ -545,44 +543,29 @@ impl Game {
             RoomLabel::K,
             RoomLabel::L,
         ];
-        let mut idx = 0usize;
-        for &r in &base_rooms {
-            cards[idx] = GhostCard::Room(r);
-            idx += 1;
+        let mut size = 0usize;
+        for &r in &rooms {
+            cards[size] = GhostCard::Room(r);
+            size += 1;
         }
-        cards[idx] = GhostCard::Reshuffle;
-        idx += 1;
-        // Fill to 19 with duplicate room cards (E, G, J — common GGS rooms).
-        let extras = [
-            RoomLabel::E,
-            RoomLabel::G,
-            RoomLabel::J,
-            RoomLabel::B,
-            RoomLabel::D,
-            RoomLabel::K,
-        ];
-        for &r in &extras {
-            if idx >= 19 {
-                break;
-            }
-            cards[idx] = GhostCard::Room(r);
-            idx += 1;
-        }
-        let mut size = 19usize;
+        cards[size] = GhostCard::Reshuffle;
+        size += 1;
 
-        // Add advanced cards.
-        if variant.draw_two_card && size < MAX_GHOST_CARDS {
+        // Advanced cards.
+        if variant.draw_two_card {
             cards[size] = GhostCard::DrawTwo;
             size += 1;
         }
-        if variant.draw_three_card && size < MAX_GHOST_CARDS {
+        if variant.draw_three_card {
             cards[size] = GhostCard::DrawThree;
             size += 1;
         }
-        if variant.door_cards && size + 1 < MAX_GHOST_CARDS {
+        if variant.door_cards {
             cards[size] = GhostCard::BlueDoors;
-            cards[size + 1] = GhostCard::GreenDoors;
-            size += 2;
+            cards[size + 1] = GhostCard::BlueDoors;
+            cards[size + 2] = GhostCard::GreenDoors;
+            cards[size + 3] = GhostCard::GreenDoors;
+            size += 4;
         }
 
         cards[..size].shuffle(rng);
