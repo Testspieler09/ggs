@@ -20,7 +20,10 @@ pub struct MctsStrategy {
 
 impl MctsStrategy {
     pub fn new(simulations: u32, exploration: f32) -> Self {
-        Self { simulations, exploration }
+        Self {
+            simulations,
+            exploration,
+        }
     }
 }
 
@@ -38,7 +41,10 @@ struct MctsNode {
 impl Strategy for MctsStrategy {
     fn choose_action(&self, view: &PlayerView) -> Action {
         // Stub: fall back to first legal action until UCT is implemented.
-        view.legal_actions.first().copied().expect("no legal actions")
+        view.legal_actions
+            .first()
+            .copied()
+            .expect("no legal actions")
     }
 
     fn on_game_start(&mut self, _figure_id: u8, _variant: Variant) {

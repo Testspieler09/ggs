@@ -22,7 +22,7 @@ impl Variant {
         numbered_jewels: false,
     };
 
-    pub const FULL: Self = Self {
+    pub const ADVANCED: Self = Self {
         draw_two_card: true,
         draw_three_card: true,
         door_cards: true,

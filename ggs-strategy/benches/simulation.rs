@@ -13,9 +13,8 @@ fn bench_simulate_one_game(c: &mut Criterion) {
     });
     c.bench_function("simulate_one_game_random", |b| {
         b.iter(|| {
-            let mut strats: Vec<RandomStrategyMut> = (0..4)
-                .map(|i| RandomStrategyMut::new(i * 7))
-                .collect();
+            let mut strats: Vec<RandomStrategyMut> =
+                (0..4).map(|i| RandomStrategyMut::new(i * 7)).collect();
             simulate_one_game(42, Variant::BASE, 4, &mut strats)
         });
     });

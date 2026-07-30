@@ -17,7 +17,16 @@ pub fn is_win(state: &GameState) -> bool {
 }
 
 pub fn is_loss(state: &GameState) -> bool {
-    state.spuk_count >= crate::state::MAX_SPUK
+    if state.spuk_count >= crate::state::MAX_SPUK {
+        return true;
+    }
+    // All figures are carrying a jewel and each is alone in a Spuk room: unwinnable deadlock.
+    (0..state.figure_count as usize).all(|i| {
+        let pos = state.figure_pos[i];
+        state.figure_carries[i].is_some()
+            && state.node_states[pos as usize].has_spuk
+            && state.node_states[pos as usize].figure_count() == 1
+    })
 }
 
 pub fn is_terminal(state: &GameState) -> bool {
@@ -40,22 +49,29 @@ pub fn other_end(edge: EdgeId, from: NodeId) -> NodeId {
     ADJACENCY.other_end(edge, from)
 }
 
-/// Returns all edges the active figure can traverse in one step from their current node.
-/// Filters out blocked edges and hallway cells already occupied by another figure.
+/// Returns all edges the active figure can legally traverse in one step from their current node.
+///
+/// Hallway pass-through rule: a figure may enter an occupied hallway cell (costs 1 move) but
+/// cannot stop there. The engine enforces no-stop via suppressing StopMoving in that case.
+///
+/// Spuk-trap rule: a figure carrying a jewel may not leave a Spuk room.
 pub fn reachable_edges(state: &GameState) -> impl Iterator<Item = EdgeId> + '_ {
     let fig = state.active_figure;
     let pos = state.figure_pos[fig as usize];
+    let carrying = state.figure_carries[fig as usize].is_some();
+    let in_spuk_room = state.node_states[pos as usize].has_spuk;
+
     ADJACENCY.edges_of(pos).iter().copied().filter(move |&e| {
         if !edge_passable(state, e) {
             return false;
         }
-        let dest = other_end(e, pos);
-        // Hallway cells: at most one figure.
-        if matches!(crate::board::NODES[dest as usize].kind, NodeKind::Hallway) {
-            state.node_states[dest as usize].figure_count() == 0
-        } else {
-            true
+        // Spuk-trap: a figure carrying a jewel cannot leave a Spuk room.
+        if carrying && in_spuk_room {
+            return false;
         }
+        // Occupied hallway cells may be entered (pass-through) but not as a final stop.
+        // We still allow the edge; StopMoving is suppressed separately when on such a cell.
+        true
     })
 }
 
@@ -136,21 +152,22 @@ pub fn legal_actions_into(state: &GameState, buf: &mut Vec<Action>) {
             for edge in reachable_edges(state) {
                 buf.push(Action::MoveAlongEdge { edge });
             }
-            buf.push(Action::StopMoving);
-            // Deposit jewel at entrance if carrying one and currently at entrance.
             let fig = state.active_figure as usize;
-            if state.figure_carries[fig].is_some()
-                && state.figure_pos[fig] == ENTRANCE
-            {
-                buf.push(Action::DepositJewel);
+            let pos = state.figure_pos[fig];
+            // May only stop if not currently on an occupied hallway cell (pass-through rule).
+            let on_occupied_hallway = matches!(crate::board::NODES[pos as usize].kind, NodeKind::Hallway)
+                && state.node_states[pos as usize].figure_count() > 1;
+            if !on_occupied_hallway {
+                buf.push(Action::StopMoving);
+                if state.figure_carries[fig].is_some() && pos == ENTRANCE {
+                    buf.push(Action::DepositJewel);
+                }
             }
         }
         TurnPhase::PickupJewel => {
             // Deposit first if at entrance with a jewel (can happen if movement ended there).
             let fig = state.active_figure as usize;
-            if state.figure_carries[fig].is_some()
-                && state.figure_pos[fig] == ENTRANCE
-            {
+            if state.figure_carries[fig].is_some() && state.figure_pos[fig] == ENTRANCE {
                 buf.push(Action::DepositJewel);
             } else if can_pickup(state) {
                 let pos = state.figure_pos[fig];
@@ -184,7 +201,7 @@ pub fn legal_actions(state: &GameState) -> Vec<Action> {
 // ---------------------------------------------------------------------------
 
 /// BFS distance from `start` to the nearest node satisfying `goal`.
-/// Returns `None` if unreachable. Respects closed edges and hallway occupancy.
+/// Returns `None` if unreachable. Respects closed edges, pass-through, and the Spuk-trap.
 pub fn bfs_distance<F>(state: &GameState, start: NodeId, goal: F) -> Option<u32>
 where
     F: Fn(NodeId) -> bool,
@@ -192,11 +209,16 @@ where
     if goal(start) {
         return Some(0);
     }
+    let carrying = state.figure_carries[state.active_figure as usize].is_some();
     let mut visited = [false; NODE_COUNT];
     visited[start as usize] = true;
     let mut queue: std::collections::VecDeque<(NodeId, u32)> = std::collections::VecDeque::new();
     queue.push_back((start, 0));
     while let Some((node, dist)) = queue.pop_front() {
+        // Spuk-trap: cannot leave a Spuk room while carrying a jewel.
+        if carrying && state.node_states[node as usize].has_spuk {
+            continue;
+        }
         for &edge in ADJACENCY.edges_of(node) {
             if !edge_passable(state, edge) {
                 continue;
@@ -205,17 +227,11 @@ where
             if visited[next as usize] {
                 continue;
             }
-            // Hallway occupancy check (figures other than the active one block the cell).
-            if matches!(crate::board::NODES[next as usize].kind, NodeKind::Hallway) {
-                let ns = &state.node_states[next as usize];
-                // Occupied by someone other than the active figure.
-                let others = ns.figures & !(1 << state.active_figure);
-                if others != 0 {
-                    continue;
-                }
-            }
             visited[next as usize] = true;
-            if goal(next) {
+            // An occupied hallway cell can be traversed but not used as a goal.
+            let occupied_hallway = matches!(crate::board::NODES[next as usize].kind, NodeKind::Hallway)
+                && state.node_states[next as usize].figure_count() > 0;
+            if !occupied_hallway && goal(next) {
                 return Some(dist + 1);
             }
             queue.push_back((next, dist + 1));

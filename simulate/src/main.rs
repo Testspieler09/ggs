@@ -68,12 +68,24 @@ fn main() {
 
 fn parse_variant(s: &str) -> Variant {
     match s {
-        "full"     => Variant::FULL,
-        "draw2"    => Variant { draw_two_card: true,  ..Variant::BASE },
-        "draw3"    => Variant { draw_three_card: true, ..Variant::BASE },
-        "doors"    => Variant { door_cards: true,     ..Variant::BASE },
-        "numbered" => Variant { numbered_jewels: true, ..Variant::BASE },
-        _          => Variant::BASE,
+        "full" => Variant::ADVANCED,
+        "draw2" => Variant {
+            draw_two_card: true,
+            ..Variant::BASE
+        },
+        "draw3" => Variant {
+            draw_three_card: true,
+            ..Variant::BASE
+        },
+        "doors" => Variant {
+            door_cards: true,
+            ..Variant::BASE
+        },
+        "numbered" => Variant {
+            numbered_jewels: true,
+            ..Variant::BASE
+        },
+        _ => Variant::BASE,
     }
 }
 
@@ -88,7 +100,11 @@ fn run_game(
     match strategy {
         "random" => {
             let mut strats: Vec<RandomStrategyMut> = (0..figures)
-                .map(|f| RandomStrategyMut::new(seed.wrapping_add(f as u64).wrapping_mul(0x9e3779b97f4a7c15)))
+                .map(|f| {
+                    RandomStrategyMut::new(
+                        seed.wrapping_add(f as u64).wrapping_mul(0x9e3779b97f4a7c15),
+                    )
+                })
                 .collect();
             if save_log {
                 let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);
@@ -117,9 +133,8 @@ fn run_game(
             }
         }
         _ => {
-            let mut strats: Vec<GreedyStrategy> = (0..figures)
-                .map(|_| GreedyStrategy::new())
-                .collect();
+            let mut strats: Vec<GreedyStrategy> =
+                (0..figures).map(|_| GreedyStrategy::new()).collect();
             if save_log {
                 let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);
                 if let Some(path) = log_path {
@@ -146,22 +161,39 @@ struct BatchStats {
 impl BatchStats {
     fn record(&mut self, r: GameResult) {
         self.games += 1;
-        if r.won { self.wins += 1; }
+        if r.won {
+            self.wins += 1;
+        }
         self.total_turns += r.turns_taken as u64;
         self.total_spuk += r.spuk_placed as u64;
         self.total_jewels += r.jewels_deposited as u64;
     }
 
     fn win_rate(&self) -> f64 {
-        if self.games == 0 { return 0.0; }
+        if self.games == 0 {
+            return 0.0;
+        }
         self.wins as f64 / self.games as f64
     }
 
     fn print_summary(&self) {
         println!("Games:        {}", self.games);
-        println!("Wins:         {} ({:.1}%)", self.wins, self.win_rate() * 100.0);
-        println!("Avg turns:    {:.1}", self.total_turns as f64 / self.games as f64);
-        println!("Avg Spuk:     {:.2}", self.total_spuk as f64 / self.games as f64);
-        println!("Avg jewels:   {:.2}", self.total_jewels as f64 / self.games as f64);
+        println!(
+            "Wins:         {} ({:.1}%)",
+            self.wins,
+            self.win_rate() * 100.0
+        );
+        println!(
+            "Avg turns:    {:.1}",
+            self.total_turns as f64 / self.games as f64
+        );
+        println!(
+            "Avg Spuk:     {:.2}",
+            self.total_spuk as f64 / self.games as f64
+        );
+        println!(
+            "Avg jewels:   {:.2}",
+            self.total_jewels as f64 / self.games as f64
+        );
     }
 }

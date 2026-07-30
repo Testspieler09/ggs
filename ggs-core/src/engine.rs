@@ -2,19 +2,19 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use rand::seq::SliceRandom;
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::action::{Action, SymbolFace};
 use crate::board::{
-    EdgeId, NodeKind, RoomLabel, ADJACENCY, BLUE_EDGES, EDGE_COUNT, ENTRANCE,
-    GREEN_EDGES, NODE_COUNT, NODES, room_node,
+    room_node, EdgeId, NodeKind, RoomLabel, ADJACENCY, BLUE_EDGES, EDGE_COUNT, ENTRANCE,
+    GREEN_EDGES, NODES, NODE_COUNT,
 };
 use crate::rules;
 use crate::state::{
-    EdgeState, GameState, GhostCard, GhostDeck, NodeState, TurnPhase, JEWEL_COUNT,
-    MAX_FIGURES, MAX_GHOST_CARDS, MAX_SPUK,
+    EdgeState, GameState, GhostCard, GhostDeck, NodeState, TurnPhase, JEWEL_COUNT, MAX_FIGURES,
+    MAX_GHOST_CARDS, MAX_SPUK,
 };
 use crate::strategy_trait::Strategy;
 use crate::variant::Variant;
@@ -47,12 +47,18 @@ pub struct GameResult {
 /// Records what a ghost card resolution did (useful for logging / replay).
 #[derive(Debug, Clone, Copy)]
 pub enum GhostCardEvent {
-    GhostPlaced { room: RoomLabel },
-    SpukPlaced { room: RoomLabel },
+    GhostPlaced {
+        room: RoomLabel,
+    },
+    SpukPlaced {
+        room: RoomLabel,
+    },
     Reshuffled,
     /// Extra draws were triggered (Zieh 2 / Zieh 3). `extra` is the number of
     /// additional draws queued.
-    DrawMultiple { extra: u8 },
+    DrawMultiple {
+        extra: u8,
+    },
     BlueDoorsClosed,
     GreenDoorsClosed,
 }
@@ -69,7 +75,10 @@ pub struct Game {
 
 impl Game {
     pub fn new(seed: u64, variant: Variant, figure_count: u8) -> Self {
-        assert!(figure_count == 3 || figure_count == 4, "figure_count must be 3 or 4");
+        assert!(
+            figure_count == 3 || figure_count == 4,
+            "figure_count must be 3 or 4"
+        );
         let mut rng = StdRng::seed_from_u64(seed);
         let state = Self::setup(&mut rng, variant, figure_count);
         Self { state, rng }
@@ -170,9 +179,7 @@ impl Game {
                 let _ = remaining;
                 StepResult::Continue
             }
-            (TurnPhase::Move, Action::MoveAlongEdge { edge }) => {
-                self.move_figure(edge)
-            }
+            (TurnPhase::Move, Action::MoveAlongEdge { edge }) => self.move_figure(edge),
             (TurnPhase::Move, Action::StopMoving) => {
                 self.state.moves_remaining = 0;
                 self.advance_from_move();
@@ -211,7 +218,11 @@ impl Game {
                 StepResult::Continue
             }
             _ => {
-                debug_assert!(false, "illegal action {:?} in phase {:?}", action, self.state.phase);
+                debug_assert!(
+                    false,
+                    "illegal action {:?} in phase {:?}",
+                    action, self.state.phase
+                );
                 StepResult::IllegalAction
             }
         }
@@ -378,7 +389,10 @@ impl Game {
     }
 
     fn decrement_ghost_cards_remaining(&mut self) {
-        if let TurnPhase::DrawGhostCard { ref mut cards_remaining } = self.state.phase {
+        if let TurnPhase::DrawGhostCard {
+            ref mut cards_remaining,
+        } = self.state.phase
+        {
             if *cards_remaining > 0 {
                 *cards_remaining -= 1;
             }
@@ -386,7 +400,10 @@ impl Game {
     }
 
     fn bump_cards_remaining(&mut self, extra: u8) {
-        if let TurnPhase::DrawGhostCard { ref mut cards_remaining } = self.state.phase {
+        if let TurnPhase::DrawGhostCard {
+            ref mut cards_remaining,
+        } = self.state.phase
+        {
             // Replace the current draw count with `extra` (the card itself was the trigger).
             *cards_remaining = (*cards_remaining - 1).saturating_add(extra);
         }
@@ -512,11 +529,21 @@ impl Game {
         // The actual GGS base deck has ~19 cards (rooms + Reshuffle).
         // We approximate: 1× each room A–L = 12, plus one Reshuffle = 13 base cards.
         // Remaining slots up to the array size are filled with room cards (B, D, E duplicates).
-        let mut cards: [GhostCard; MAX_GHOST_CARDS] = [GhostCard::Room(RoomLabel::A); MAX_GHOST_CARDS];
+        let mut cards: [GhostCard; MAX_GHOST_CARDS] =
+            [GhostCard::Room(RoomLabel::A); MAX_GHOST_CARDS];
         let base_rooms = [
-            RoomLabel::A, RoomLabel::B, RoomLabel::C, RoomLabel::D,
-            RoomLabel::E, RoomLabel::F, RoomLabel::G, RoomLabel::H,
-            RoomLabel::I, RoomLabel::J, RoomLabel::K, RoomLabel::L,
+            RoomLabel::A,
+            RoomLabel::B,
+            RoomLabel::C,
+            RoomLabel::D,
+            RoomLabel::E,
+            RoomLabel::F,
+            RoomLabel::G,
+            RoomLabel::H,
+            RoomLabel::I,
+            RoomLabel::J,
+            RoomLabel::K,
+            RoomLabel::L,
         ];
         let mut idx = 0usize;
         for &r in &base_rooms {
@@ -526,10 +553,18 @@ impl Game {
         cards[idx] = GhostCard::Reshuffle;
         idx += 1;
         // Fill to 19 with duplicate room cards (E, G, J — common GGS rooms).
-        let extras = [RoomLabel::E, RoomLabel::G, RoomLabel::J,
-                      RoomLabel::B, RoomLabel::D, RoomLabel::K];
+        let extras = [
+            RoomLabel::E,
+            RoomLabel::G,
+            RoomLabel::J,
+            RoomLabel::B,
+            RoomLabel::D,
+            RoomLabel::K,
+        ];
         for &r in &extras {
-            if idx >= 19 { break; }
+            if idx >= 19 {
+                break;
+            }
             cards[idx] = GhostCard::Room(r);
             idx += 1;
         }
@@ -590,8 +625,10 @@ where
 
         // RollDie and DrawGhostCard are auto-resolved (single legal action).
         let action = if action_buf.len() == 1
-            && matches!(action_buf[0], Action::RollDie | Action::DrawGhostCard | Action::EndTurn)
-        {
+            && matches!(
+                action_buf[0],
+                Action::RollDie | Action::DrawGhostCard | Action::EndTurn
+            ) {
             action_buf[0]
         } else {
             let fig = game.state.active_figure as usize;
@@ -685,9 +722,9 @@ impl GameLog {
         file.read_exact(&mut buf1)?;
         let flags = buf1[0];
         let variant = Variant {
-            draw_two_card:   flags & 0x01 != 0,
+            draw_two_card: flags & 0x01 != 0,
             draw_three_card: flags & 0x02 != 0,
-            door_cards:      flags & 0x04 != 0,
+            door_cards: flags & 0x04 != 0,
             numbered_jewels: flags & 0x08 != 0,
         };
         let mut buf4 = [0u8; 4];
@@ -697,22 +734,27 @@ impl GameLog {
         for _ in 0..count {
             actions.push(decode_action(&mut file)?);
         }
-        Ok(GameLog { seed, variant, figure_count, actions })
+        Ok(GameLog {
+            seed,
+            variant,
+            figure_count,
+            actions,
+        })
     }
 }
 
 fn encode_action(w: &mut impl Write, action: Action) -> io::Result<()> {
     match action {
-        Action::RollDie                   => w.write_all(&[0x00]),
-        Action::DrawGhostCard             => w.write_all(&[0x01]),
-        Action::MoveAlongEdge { edge }    => w.write_all(&[0x02, edge]),
-        Action::StopMoving                => w.write_all(&[0x03]),
-        Action::PickupJewel { jewel }     => w.write_all(&[0x04, jewel]),
-        Action::SkipPickup                => w.write_all(&[0x05]),
-        Action::DepositJewel              => w.write_all(&[0x06]),
-        Action::Fight                     => w.write_all(&[0x07]),
-        Action::SkipCombat                => w.write_all(&[0x08]),
-        Action::EndTurn                   => w.write_all(&[0x09]),
+        Action::RollDie => w.write_all(&[0x00]),
+        Action::DrawGhostCard => w.write_all(&[0x01]),
+        Action::MoveAlongEdge { edge } => w.write_all(&[0x02, edge]),
+        Action::StopMoving => w.write_all(&[0x03]),
+        Action::PickupJewel { jewel } => w.write_all(&[0x04, jewel]),
+        Action::SkipPickup => w.write_all(&[0x05]),
+        Action::DepositJewel => w.write_all(&[0x06]),
+        Action::Fight => w.write_all(&[0x07]),
+        Action::SkipCombat => w.write_all(&[0x08]),
+        Action::EndTurn => w.write_all(&[0x09]),
     }
 }
 
@@ -722,16 +764,28 @@ fn decode_action(r: &mut impl Read) -> io::Result<Action> {
     Ok(match tag[0] {
         0x00 => Action::RollDie,
         0x01 => Action::DrawGhostCard,
-        0x02 => { let mut b = [0u8; 1]; r.read_exact(&mut b)?; Action::MoveAlongEdge { edge: b[0] } }
+        0x02 => {
+            let mut b = [0u8; 1];
+            r.read_exact(&mut b)?;
+            Action::MoveAlongEdge { edge: b[0] }
+        }
         0x03 => Action::StopMoving,
-        0x04 => { let mut b = [0u8; 1]; r.read_exact(&mut b)?; Action::PickupJewel { jewel: b[0] } }
+        0x04 => {
+            let mut b = [0u8; 1];
+            r.read_exact(&mut b)?;
+            Action::PickupJewel { jewel: b[0] }
+        }
         0x05 => Action::SkipPickup,
         0x06 => Action::DepositJewel,
         0x07 => Action::Fight,
         0x08 => Action::SkipCombat,
         0x09 => Action::EndTurn,
-        tag  => return Err(io::Error::new(io::ErrorKind::InvalidData,
-                    format!("unknown action tag 0x{tag:02x}"))),
+        tag => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("unknown action tag 0x{tag:02x}"),
+            ))
+        }
     })
 }
 
@@ -761,8 +815,10 @@ where
         }
 
         let action = if action_buf.len() == 1
-            && matches!(action_buf[0], Action::RollDie | Action::DrawGhostCard | Action::EndTurn)
-        {
+            && matches!(
+                action_buf[0],
+                Action::RollDie | Action::DrawGhostCard | Action::EndTurn
+            ) {
             action_buf[0]
         } else {
             let fig = game.state.active_figure as usize;
@@ -792,8 +848,18 @@ where
         s.on_game_end(won);
     }
 
-    let result = GameResult { won, turns_taken: turns, spuk_placed: spuk, jewels_deposited: jewels };
-    let log = GameLog { seed, variant, figure_count, actions: log_actions };
+    let result = GameResult {
+        won,
+        turns_taken: turns,
+        spuk_placed: spuk,
+        jewels_deposited: jewels,
+    };
+    let log = GameLog {
+        seed,
+        variant,
+        figure_count,
+        actions: log_actions,
+    };
     (result, log)
 }
 
@@ -825,7 +891,12 @@ pub fn replay(log: &GameLog) -> GameResult {
     let won = game.state.players_won;
     let spuk = game.state.spuk_count;
     let jewels = game.state.jewel_deposited.iter().filter(|&&d| d).count() as u8;
-    GameResult { won, turns_taken: turns, spuk_placed: spuk, jewels_deposited: jewels }
+    GameResult {
+        won,
+        turns_taken: turns,
+        spuk_placed: spuk,
+        jewels_deposited: jewels,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -851,7 +922,10 @@ mod tests {
             let mut strats = vec![FirstActionStrategy; 4];
             let (original, log) = simulate_one_game_logged(seed, Variant::BASE, 4, &mut strats);
             let replayed = replay(&log);
-            assert_eq!(original, replayed, "seed={seed}: replay result differs from original");
+            assert_eq!(
+                original, replayed,
+                "seed={seed}: replay result differs from original"
+            );
         }
     }
 

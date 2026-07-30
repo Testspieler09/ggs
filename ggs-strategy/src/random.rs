@@ -15,11 +15,15 @@ pub struct RandomStrategy {
 
 impl RandomStrategy {
     pub fn new(seed: u64) -> Self {
-        Self { rng: SmallRng::seed_from_u64(seed) }
+        Self {
+            rng: SmallRng::seed_from_u64(seed),
+        }
     }
 
     pub fn new_unseeded() -> Self {
-        Self { rng: SmallRng::from_os_rng() }
+        Self {
+            rng: SmallRng::from_os_rng(),
+        }
     }
 }
 
@@ -45,11 +49,15 @@ pub struct RandomStrategyMut {
 
 impl RandomStrategyMut {
     pub fn new(seed: u64) -> Self {
-        Self { rng: SmallRng::seed_from_u64(seed) }
+        Self {
+            rng: SmallRng::seed_from_u64(seed),
+        }
     }
 
     pub fn new_unseeded() -> Self {
-        Self { rng: SmallRng::from_os_rng() }
+        Self {
+            rng: SmallRng::from_os_rng(),
+        }
     }
 
     pub fn choose_action_mut(&mut self, view: &PlayerView) -> Action {

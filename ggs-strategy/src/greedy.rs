@@ -1,5 +1,5 @@
 use ggs_core::action::Action;
-use ggs_core::board::{NodeId, NodeKind, ADJACENCY, NODES, room_node};
+use ggs_core::board::{room_node, NodeId, NodeKind, ADJACENCY, NODES};
 use ggs_core::observation::PlayerView;
 
 use ggs_core::strategy_trait::Strategy;
@@ -14,6 +14,7 @@ use ggs_core::strategy_trait::Strategy;
 ///    Goal = nearest uncollected jewel room if empty-handed,
 ///           or entrance if carrying a jewel.
 /// 5. Fall back to first legal action.
+#[derive(Clone)]
 pub struct GreedyStrategy;
 
 impl GreedyStrategy {
@@ -23,7 +24,11 @@ impl GreedyStrategy {
 
     /// BFS distance from `start` to the nearest node satisfying `goal`, using
     /// only the passable edges encoded in the player view.
-    pub fn bfs_to_goal(view: &PlayerView, start: NodeId, goal: impl Fn(NodeId) -> bool) -> Option<u32> {
+    pub fn bfs_to_goal(
+        view: &PlayerView,
+        start: NodeId,
+        goal: impl Fn(NodeId) -> bool,
+    ) -> Option<u32> {
         use std::collections::VecDeque;
         if goal(start) {
             return Some(0);
@@ -44,8 +49,7 @@ impl GreedyStrategy {
                 }
                 // Hallway occupancy (ignore active figure's own position).
                 if matches!(NODES[next as usize].kind, NodeKind::Hallway) {
-                    let others = view.node_states[next as usize].figures
-                        & !(1 << view.figure_id);
+                    let others = view.node_states[next as usize].figures & !(1 << view.figure_id);
                     if others != 0 {
                         continue;
                     }

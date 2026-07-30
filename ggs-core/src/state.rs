@@ -1,14 +1,14 @@
+use crate::board::{NodeId, RoomLabel, EDGE_COUNT, NODE_COUNT};
+use crate::variant::Variant;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use crate::board::{NodeId, NODE_COUNT, EDGE_COUNT, RoomLabel};
-use crate::variant::Variant;
 
 pub type FigureId = u8;
 pub type JewelId = u8;
 
 pub const MAX_FIGURES: usize = 4;
 pub const JEWEL_COUNT: usize = 8;
-pub const MAX_GHOST_CARDS: usize = 24;
+pub const MAX_GHOST_CARDS: usize = 19;
 pub const MAX_SPUK: u8 = 6;
 pub const MAX_GHOSTS_BEFORE_SPUK: u8 = 3;
 
@@ -117,10 +117,11 @@ pub enum TurnPhase {
     /// Active figure must roll the number die.
     RollDie,
     /// Active figure must draw (and resolve) ghost card(s).
+    /// Only reached when the die roll is < 6; a roll of 6 skips straight to Move.
     DrawGhostCard { cards_remaining: u8 },
     /// Active figure may move (up to `moves_remaining` steps).
     Move,
-    /// Active figure may pick up a jewel in their current room.
+    /// Active figure may pick up a jewel in their current room (always optional).
     PickupJewel,
     /// Active figure may fight ghosts/Spuk in their current room.
     Combat,

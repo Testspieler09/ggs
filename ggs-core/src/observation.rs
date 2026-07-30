@@ -109,7 +109,7 @@ pub fn observation_dim() -> usize {
         + 1             // deck size
         + MAX_FIGURES   // active figure one-hot
         + 6             // phase one-hot
-        + 1             // die roll
+        + 1 // die roll
 }
 
 /// Encode a `PlayerView` as a flat `Vec<f32>` for ML consumption.
@@ -127,7 +127,9 @@ pub fn observation_vector(view: &PlayerView) -> Vec<f32> {
 
     // Figure carry — index 0 = empty, 1..=JEWEL_COUNT = jewel id+1.
     for fig in 0..MAX_FIGURES {
-        let carry = view.figure_carries[fig].map(|j| (j + 1) as usize).unwrap_or(0);
+        let carry = view.figure_carries[fig]
+            .map(|j| (j + 1) as usize)
+            .unwrap_or(0);
         for c in 0..=(JEWEL_COUNT) {
             v.push(if c == carry { 1.0 } else { 0.0 });
         }
@@ -163,7 +165,11 @@ pub fn observation_vector(view: &PlayerView) -> Vec<f32> {
 
     // Jewel number (0 = unknown/not numbered, else (n-1)/7).
     for &num in &view.jewel_number {
-        v.push(if num == 0 { 0.0 } else { (num - 1) as f32 / 7.0 });
+        v.push(if num == 0 {
+            0.0
+        } else {
+            (num - 1) as f32 / 7.0
+        });
     }
 
     // Next required jewel.
@@ -174,7 +180,11 @@ pub fn observation_vector(view: &PlayerView) -> Vec<f32> {
 
     // Active figure one-hot.
     for f in 0..MAX_FIGURES {
-        v.push(if f == view.active_figure as usize { 1.0 } else { 0.0 });
+        v.push(if f == view.active_figure as usize {
+            1.0
+        } else {
+            0.0
+        });
     }
 
     // Phase one-hot (6 variants of TurnPhase).
