@@ -6,6 +6,8 @@ use ggs_core::observation::PlayerView;
 use ggs_core::strategy_trait::Strategy;
 use ggs_core::variant::Variant;
 
+// TODO: check why there is a mut and a immutable version of this and if we can reduce to one
+
 /// Strategy that picks uniformly at random from legal actions.
 /// Useful as a baseline and for MCTS rollouts.
 #[allow(dead_code)]
@@ -54,6 +56,7 @@ impl RandomStrategyMut {
         }
     }
 
+    // TODO: the naming seems misleading
     pub fn new_unseeded() -> Self {
         Self {
             rng: SmallRng::from_os_rng(),
@@ -72,6 +75,7 @@ impl RandomStrategyMut {
 
 impl Strategy for RandomStrategyMut {
     fn choose_action(&self, view: &PlayerView) -> Action {
+        // TODO: check if this is right for this strategy. It shure does not seem like it
         // Deterministic fallback when called via shared ref.
         view.legal_actions[0]
     }

@@ -4,6 +4,8 @@ use ggs_core::observation::PlayerView;
 
 use ggs_core::strategy_trait::Strategy;
 
+// TODO: check if this implementation is correct
+
 /// Heuristic greedy strategy.
 ///
 /// Priority order per turn:
