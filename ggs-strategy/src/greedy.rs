@@ -1,10 +1,8 @@
 use ggs_core::action::Action;
-use ggs_core::board::{room_node, NodeId, NodeKind, ADJACENCY, NODES};
+use ggs_core::board::{room_node_id, NodeId, NodeKind, ADJACENCY, NODES};
 use ggs_core::observation::PlayerView;
 
 use ggs_core::strategy_trait::Strategy;
-
-// TODO: check if this implementation is correct
 
 /// Heuristic greedy strategy.
 ///
@@ -20,23 +18,19 @@ use ggs_core::strategy_trait::Strategy;
 pub struct GreedyStrategy;
 
 impl GreedyStrategy {
-    pub fn new() -> Self {
-        Self
-    }
-
     /// BFS distance from `start` to the nearest node satisfying `goal`, using
     /// only the passable edges encoded in the player view.
     pub fn bfs_to_goal(
         view: &PlayerView,
         start: NodeId,
-        goal: impl Fn(NodeId) -> bool,
+        is_goal: impl Fn(NodeId) -> bool,
     ) -> Option<u32> {
         use std::collections::VecDeque;
-        if goal(start) {
+        if is_goal(start) {
             return Some(0);
         }
-        let n = NODES.len();
-        let mut visited = vec![false; n];
+        const N: usize = NODES.len();
+        let mut visited = vec![false; N];
         visited[start as usize] = true;
         let mut queue: VecDeque<(NodeId, u32)> = VecDeque::new();
         queue.push_back((start, 0));
@@ -51,25 +45,21 @@ impl GreedyStrategy {
                 }
                 // Hallway occupancy (ignore active figure's own position).
                 if matches!(NODES[next as usize].kind, NodeKind::Hallway) {
-                    let others = view.node_states[next as usize].figures & !(1 << view.figure_id);
-                    if others != 0 {
+                    let other_figures =
+                        view.node_states[next as usize].figures & !(1 << view.figure_id);
+                    let no_figure_present = other_figures != 0;
+                    if no_figure_present {
                         continue;
                     }
                 }
                 visited[next as usize] = true;
-                if goal(next) {
+                if is_goal(next) {
                     return Some(dist + 1);
                 }
                 queue.push_back((next, dist + 1));
             }
         }
         None
-    }
-}
-
-impl Default for GreedyStrategy {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -95,6 +85,9 @@ impl Strategy for GreedyStrategy {
         }
 
         // 2. Pick up a jewel if available.
+        // FIX: we need to check for a softlock on hard mode here
+        // Meaning if all figures have Jewels in their back but cannot deposit them
+        // as the order doesn't match.
         for &a in legal {
             if matches!(a, PickupJewel { .. }) {
                 return a;
@@ -115,7 +108,7 @@ impl Strategy for GreedyStrategy {
             let mut best_dist = u32::MAX;
             let mut best_node = None;
             for room in ggs_core::board::RoomLabel::STARTS_WITH_JEWEL {
-                let rn = room_node(room);
+                let rn = room_node_id(room);
                 let ns = &view.node_states[rn as usize];
                 if ns.jewel.is_none() {
                     continue; // already collected
@@ -150,7 +143,7 @@ impl Strategy for GreedyStrategy {
             }
         }
 
-        // 5. Fallback: first legal action.
-        legal[0]
+        // TODO: check if this holds true otherwise revert to fallback[0]
+        unreachable!("At this point an action should be picked!");
     }
 }

@@ -7,7 +7,7 @@ use ggs_strategy::random::RandomStrategyMut;
 fn bench_simulate_one_game(c: &mut Criterion) {
     c.bench_function("simulate_one_game_greedy", |b| {
         b.iter(|| {
-            let mut strats = vec![GreedyStrategy::new(); 4];
+            let mut strats = vec![GreedyStrategy; 4];
             simulate_one_game(42, Variant::BASE, 4, &mut strats)
         });
     });

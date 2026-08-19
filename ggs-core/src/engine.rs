@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::action::{Action, SymbolFace};
 use crate::board::{
-    room_node, EdgeId, NodeKind, RoomLabel, ADJACENCY, BLUE_EDGES, EDGE_COUNT, ENTRANCE,
+    room_node_id, EdgeId, NodeKind, RoomLabel, ADJACENCY, BLUE_EDGES, EDGE_COUNT, ENTRANCE,
     GREEN_EDGES, NODES, NODE_COUNT,
 };
 use crate::rules;
@@ -424,7 +424,7 @@ impl Game {
         // (wrapping A→B→…→L→A) until a non-Spuk room is found.
         let mut target = room;
         loop {
-            let node = room_node(target) as usize;
+            let node = room_node_id(target) as usize;
             if !self.state.node_states[node].has_spuk {
                 break;
             }
@@ -435,7 +435,7 @@ impl Game {
             }
         }
 
-        let node = room_node(target) as usize;
+        let node = room_node_id(target) as usize;
         let ns = &mut self.state.node_states[node];
         ns.ghosts += 1;
         if ns.ghosts >= crate::state::MAX_GHOSTS_BEFORE_SPUK {
@@ -495,7 +495,7 @@ impl Game {
 
         // Place starting ghosts.
         for &room in &RoomLabel::STARTS_WITH_GHOST {
-            node_states[room_node(room) as usize].ghosts = 1;
+            node_states[room_node_id(room) as usize].ghosts = 1;
         }
 
         // Place jewels in jewel rooms.
@@ -505,7 +505,7 @@ impl Game {
         // Assign jewel IDs 0..7 to the 8 jewel rooms.
         let jewel_rooms = RoomLabel::STARTS_WITH_JEWEL;
         for (jewel_id, &room) in jewel_rooms.iter().enumerate() {
-            node_states[room_node(room) as usize].jewel = Some(jewel_id as u8);
+            node_states[room_node_id(room) as usize].jewel = Some(jewel_id as u8);
         }
 
         // In numbered-jewel variant, assign a shuffled permutation 1..=8 into each room's
@@ -514,7 +514,7 @@ impl Game {
             let mut numbers: [u8; JEWEL_COUNT] = [1, 2, 3, 4, 5, 6, 7, 8];
             numbers.shuffle(rng);
             for (jewel_id, &room) in jewel_rooms.iter().enumerate() {
-                node_states[room_node(room) as usize].jewel_number = numbers[jewel_id];
+                node_states[room_node_id(room) as usize].jewel_number = numbers[jewel_id];
             }
             next_required_jewel = 1;
         }
@@ -992,20 +992,20 @@ mod tests {
 
     #[test]
     fn starting_ghosts_in_correct_rooms() {
-        use crate::board::room_node;
+        use crate::board::room_node_id;
         let game = make_game(0);
         for &room in &crate::board::RoomLabel::STARTS_WITH_GHOST {
-            let ns = &game.state.node_states[room_node(room) as usize];
+            let ns = &game.state.node_states[room_node_id(room) as usize];
             assert_eq!(ns.ghosts, 1, "room {room:?} should start with 1 ghost");
         }
     }
 
     #[test]
     fn starting_jewels_in_correct_rooms() {
-        use crate::board::room_node;
+        use crate::board::room_node_id;
         let game = make_game(0);
         for &room in &crate::board::RoomLabel::STARTS_WITH_JEWEL {
-            let ns = &game.state.node_states[room_node(room) as usize];
+            let ns = &game.state.node_states[room_node_id(room) as usize];
             assert!(
                 ns.jewel.is_some(),
                 "room {room:?} should start with a jewel"
@@ -1051,7 +1051,7 @@ mod tests {
             crate::board::RoomLabel::K,
             crate::board::RoomLabel::L,
         ] {
-            game.state.node_states[crate::board::room_node(room) as usize].has_spuk = true;
+            game.state.node_states[crate::board::room_node_id(room) as usize].has_spuk = true;
         }
         game.state.spuk_count = 11;
         game.state.node_states[ROOM_A as usize].has_spuk = false;
@@ -1159,11 +1159,11 @@ mod tests {
 
     #[test]
     fn jewel_number_revealed_on_room_entry() {
-        use crate::board::room_node;
+        use crate::board::room_node_id;
         let mut game = Game::new(0, Variant::ADVANCED, 4);
         // Find the first jewel room that has a jewel still in it.
         let target_room = crate::board::RoomLabel::STARTS_WITH_JEWEL[0];
-        let target_node = room_node(target_room);
+        let target_node = room_node_id(target_room);
         let jewel_id = game.state.node_states[target_node as usize].jewel.unwrap();
         let true_number = game.state.node_states[target_node as usize].jewel_number;
         assert!(true_number > 0, "hidden number should be set at setup");

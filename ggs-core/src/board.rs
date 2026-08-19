@@ -150,12 +150,12 @@ pub const NODE_COUNT: usize = 36;
 pub const HALLWAY_CELL_COUNT: usize = 23;
 
 /// Maps RoomLabel → NodeId. Rooms start at 24 (after Entrance + H1–H23).
-pub const fn room_node(label: RoomLabel) -> NodeId {
+pub const fn room_node_id(label: RoomLabel) -> NodeId {
     label as NodeId + 24
 }
 
 /// Maps NodeId → RoomLabel, if the node is a room.
-pub const fn node_room(id: NodeId) -> Option<RoomLabel> {
+pub const fn node_room_label(id: NodeId) -> Option<RoomLabel> {
     if id < 24 || id > 35 {
         return None;
     }

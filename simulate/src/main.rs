@@ -6,7 +6,7 @@ use ggs_core::engine::{simulate_one_game, simulate_one_game_logged, GameResult};
 use ggs_core::variant::Variant;
 use ggs_strategy::greedy::GreedyStrategy;
 use ggs_strategy::mcts::MctsStrategy;
-use ggs_strategy::random::RandomStrategyMut;
+use ggs_strategy::random::RandomStrategy;
 
 #[derive(Parser)]
 #[command(name = "simulate", about = "Run GGS simulation batch")]
@@ -99,9 +99,9 @@ fn run_game(
 ) -> GameResult {
     match strategy {
         "random" => {
-            let mut strats: Vec<RandomStrategyMut> = (0..figures)
+            let mut strats: Vec<RandomStrategy> = (0..figures)
                 .map(|f| {
-                    RandomStrategyMut::new(
+                    RandomStrategy::new(
                         seed.wrapping_add(f as u64).wrapping_mul(0x9e3779b97f4a7c15),
                     )
                 })
@@ -133,8 +133,7 @@ fn run_game(
             }
         }
         _ => {
-            let mut strats: Vec<GreedyStrategy> =
-                (0..figures).map(|_| GreedyStrategy::new()).collect();
+            let mut strats: Vec<GreedyStrategy> = (0..figures).map(|_| GreedyStrategy).collect();
             if save_log {
                 let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);
                 if let Some(path) = log_path {
