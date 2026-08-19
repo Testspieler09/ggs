@@ -915,7 +915,7 @@ mod tests {
     #[derive(Clone)]
     struct FirstActionStrategy;
     impl crate::strategy_trait::Strategy for FirstActionStrategy {
-        fn choose_action(&self, view: &crate::observation::PlayerView) -> Action {
+        fn choose_action(&mut self, view: &crate::observation::PlayerView) -> Action {
             view.legal_actions[0]
         }
     }

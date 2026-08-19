@@ -41,7 +41,7 @@ impl RlStrategy {
 }
 
 impl Strategy for RlStrategy {
-    fn choose_action(&self, view: &PlayerView) -> Action {
+    fn choose_action(&mut self, view: &PlayerView) -> Action {
         // Stub: fall back to first legal action until MLP is implemented.
         view.legal_actions
             .first()

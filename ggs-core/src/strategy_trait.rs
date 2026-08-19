@@ -7,7 +7,7 @@ use crate::variant::Variant;
 /// The returned action must appear in `view.legal_actions`;
 /// returning an illegal action causes a panic in debug mode.
 pub trait Strategy: Send + Sync {
-    fn choose_action(&self, view: &PlayerView) -> Action;
+    fn choose_action(&mut self, view: &PlayerView) -> Action;
 
     /// Called once before the first turn of a new game.
     fn on_game_start(&mut self, figure_id: u8, variant: Variant) {

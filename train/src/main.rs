@@ -1,7 +1,7 @@
 use ggs_core::engine::simulate_one_game;
 use ggs_core::observation::observation_dim;
 use ggs_core::variant::Variant;
-use ggs_strategy::random::RandomStrategyMut;
+use ggs_strategy::random::RandomStrategy;
 use ggs_strategy::rl::RlStrategy;
 
 fn main() {
@@ -11,8 +11,8 @@ fn main() {
 
     let mut wins = 0u32;
     for seed in 0..10u64 {
-        let mut strats: Vec<RandomStrategyMut> = (0..4)
-            .map(|i| RandomStrategyMut::new(seed ^ (i * 0x1234567890abcdef)))
+        let mut strats: Vec<RandomStrategy> = (0..4)
+            .map(|i| RandomStrategy::new(seed ^ (i * 0x1234567890abcdef)))
             .collect();
         let result = simulate_one_game(seed, Variant::BASE, 4, &mut strats);
         if result.won {

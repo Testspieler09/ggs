@@ -30,7 +30,7 @@ impl GreedyStrategy {
             return Some(0);
         }
         const N: usize = NODES.len();
-        let mut visited = vec![false; N];
+        let mut visited = [false; N];
         visited[start as usize] = true;
         let mut queue: VecDeque<(NodeId, u32)> = VecDeque::new();
         queue.push_back((start, 0));
@@ -64,7 +64,7 @@ impl GreedyStrategy {
 }
 
 impl Strategy for GreedyStrategy {
-    fn choose_action(&self, view: &PlayerView) -> Action {
+    fn choose_action(&mut self, view: &PlayerView) -> Action {
         use ggs_core::action::Action::*;
         use ggs_core::board::ENTRANCE;
 

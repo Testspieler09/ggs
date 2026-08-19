@@ -2,7 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use ggs_core::engine::{simulate_one_game, Game};
 use ggs_core::variant::Variant;
 use ggs_strategy::greedy::GreedyStrategy;
-use ggs_strategy::random::RandomStrategyMut;
+use ggs_strategy::random::RandomStrategy;
 
 fn bench_simulate_one_game(c: &mut Criterion) {
     c.bench_function("simulate_one_game_greedy", |b| {
@@ -13,8 +13,8 @@ fn bench_simulate_one_game(c: &mut Criterion) {
     });
     c.bench_function("simulate_one_game_random", |b| {
         b.iter(|| {
-            let mut strats: Vec<RandomStrategyMut> =
-                (0..4).map(|i| RandomStrategyMut::new(i * 7)).collect();
+            let mut strats: Vec<RandomStrategy> =
+                (0..4).map(|i| RandomStrategy::new(i * 7)).collect();
             simulate_one_game(42, Variant::BASE, 4, &mut strats)
         });
     });

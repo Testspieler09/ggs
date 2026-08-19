@@ -39,7 +39,7 @@ struct MctsNode {
 }
 
 impl Strategy for MctsStrategy {
-    fn choose_action(&self, view: &PlayerView) -> Action {
+    fn choose_action(&mut self, view: &PlayerView) -> Action {
         // Stub: fall back to first legal action until UCT is implemented.
         view.legal_actions
             .first()
