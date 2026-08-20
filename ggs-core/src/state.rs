@@ -156,6 +156,9 @@ pub struct GameState {
     /// Jewel carried by each figure, if any.
     pub figure_carries: [Option<JewelId>; MAX_FIGURES],
 
+    // NOTE: the `jewel_deposited` and `jewel_number` fields could be optimized
+    // by using a u8 to encode the information
+
     // --- Jewel state ---
     /// Whether each jewel has been safely deposited at the entrance.
     pub jewel_deposited: [bool; JEWEL_COUNT],

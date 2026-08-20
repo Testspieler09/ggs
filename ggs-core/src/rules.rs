@@ -2,7 +2,7 @@
 /// No mutation. The engine calls these; strategies may call them via `PlayerView`.
 use crate::action::Action;
 use crate::board::{EdgeId, NodeId, NodeKind, ADJACENCY, ENTRANCE, NODE_COUNT};
-use crate::state::{GameState, JewelId, TurnPhase};
+use crate::state::{GameState, JewelId, TurnPhase, JEWEL_COUNT};
 
 // ---------------------------------------------------------------------------
 // Terminal conditions
@@ -107,7 +107,11 @@ pub fn can_pickup(state: &GameState) -> bool {
         // revealed == 0 means not yet revealed (figure hasn't entered the room before)
         // The engine reveals the number when the figure enters; if still 0 here, it means
         // the engine hasn't run the reveal yet — treat as not-pickable until revealed.
-        revealed != 0 && revealed == state.next_required_jewel
+        let is_contained = (0..state.figure_count)
+            .map(|n| state.next_required_jewel + n)
+            .filter(|&val| val as usize <= JEWEL_COUNT)
+            .any(|val| val == revealed);
+        revealed != 0 && !is_contained
     } else {
         true
     }
