@@ -89,7 +89,7 @@ pub fn jewel_in_node(state: &GameState, node: NodeId) -> Option<JewelId> {
 ///   - Figure is in a Room node (not hallway/entrance)
 ///   - A jewel is present in that room
 ///   - Figure is not already carrying a jewel
-///   - Numbered-jewel variant: the jewel's revealed number matches `next_required_jewel`
+///   - Numbered-jewel variant: the jewel's revealed number does not cause the game to end
 pub fn can_pickup(state: &GameState) -> bool {
     let fig = state.active_figure as usize;
     if state.figure_carries[fig].is_some() {
@@ -107,7 +107,12 @@ pub fn can_pickup(state: &GameState) -> bool {
         // revealed == 0 means not yet revealed (figure hasn't entered the room before)
         // The engine reveals the number when the figure enters; if still 0 here, it means
         // the engine hasn't run the reveal yet — treat as not-pickable until revealed.
-        let is_contained = (0..state.figure_count)
+        let count = state
+            .figure_carries
+            .iter()
+            .filter(|item| item.is_some())
+            .count() as u8;
+        let is_contained = (0..state.figure_count - count)
             .map(|n| state.next_required_jewel + n)
             .filter(|&val| val as usize <= JEWEL_COUNT)
             .any(|val| val == revealed);
