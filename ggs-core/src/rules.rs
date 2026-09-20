@@ -177,9 +177,7 @@ pub fn legal_actions_into(state: &GameState, buf: &mut Vec<Action>) {
         TurnPhase::PickupJewel => {
             // Deposit first if at entrance with a jewel (can happen if movement ended there).
             let fig = state.active_figure as usize;
-            if state.figure_carries[fig].is_some() && state.figure_pos[fig] == ENTRANCE {
-                buf.push(Action::DepositJewel);
-            } else if can_pickup(state) {
+            if can_pickup(state) {
                 let pos = state.figure_pos[fig];
                 if let Some(jewel) = state.node_states[pos as usize].jewel {
                     buf.push(Action::PickupJewel { jewel });

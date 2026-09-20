@@ -85,9 +85,6 @@ impl Strategy for GreedyStrategy {
         }
 
         // 2. Pick up a jewel if available.
-        // FIX: we need to check for a softlock on hard mode here
-        // Meaning if all figures have Jewels in their back but cannot deposit them
-        // as the order doesn't match.
         for &a in legal {
             if matches!(a, PickupJewel { .. }) {
                 return a;
@@ -143,7 +140,7 @@ impl Strategy for GreedyStrategy {
             }
         }
 
-        // TODO: check if this holds true otherwise revert to fallback[0]
-        unreachable!("At this point an action should be picked!");
+        // Fall back to first legal action (e.g. StopMoving when trapped in a Spuk room).
+        legal[0]
     }
 }

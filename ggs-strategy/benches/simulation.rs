@@ -2,6 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use ggs_core::engine::{simulate_one_game, Game};
 use ggs_core::variant::Variant;
 use ggs_strategy::greedy::GreedyStrategy;
+use ggs_strategy::mcts::MctsStrategy;
 use ggs_strategy::random::RandomStrategy;
 
 fn bench_simulate_one_game(c: &mut Criterion) {
@@ -18,6 +19,15 @@ fn bench_simulate_one_game(c: &mut Criterion) {
             simulate_one_game(42, Variant::BASE, 4, &mut strats)
         });
     });
+    c.bench_function("simulate_one_game_mcts", |b| {
+        b.iter(|| {
+            let mut strats: Vec<MctsStrategy> = (0..4)
+                .map(|i| MctsStrategy::new(100, std::f32::consts::SQRT_2, i * 7))
+                .collect();
+            simulate_one_game(42, Variant::BASE, 4, &mut strats)
+        });
+    });
+    // TODO: add rl strategy when implemented
 }
 
 fn bench_legal_actions(c: &mut Criterion) {

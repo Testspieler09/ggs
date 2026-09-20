@@ -119,7 +119,7 @@ fn run_game(
         }
         "mcts" => {
             let mut strats: Vec<MctsStrategy> = (0..figures)
-                .map(|_| MctsStrategy::new(100, std::f32::consts::SQRT_2))
+                .map(|_| MctsStrategy::new(100, std::f32::consts::SQRT_2, 42))
                 .collect();
             if save_log {
                 let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);
