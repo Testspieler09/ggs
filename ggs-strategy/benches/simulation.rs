@@ -4,6 +4,7 @@ use ggs_core::variant::Variant;
 use ggs_strategy::greedy::GreedyStrategy;
 use ggs_strategy::mcts::MctsStrategy;
 use ggs_strategy::random::RandomStrategy;
+use ggs_strategy::rl::RlStrategy;
 
 fn bench_simulate_one_game(c: &mut Criterion) {
     c.bench_function("simulate_one_game_greedy", |b| {
@@ -27,7 +28,12 @@ fn bench_simulate_one_game(c: &mut Criterion) {
             simulate_one_game(42, Variant::BASE, 4, &mut strats)
         });
     });
-    // TODO: add rl strategy when implemented
+    c.bench_function("simulate_one_game_rl", |b| {
+        b.iter(|| {
+            let mut strats: Vec<RlStrategy> = vec![RlStrategy::new(42); 4];
+            simulate_one_game(42, Variant::BASE, 4, &mut strats)
+        });
+    });
 }
 
 fn bench_legal_actions(c: &mut Criterion) {

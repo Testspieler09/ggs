@@ -7,6 +7,7 @@ use ggs_core::variant::Variant;
 use ggs_strategy::greedy::GreedyStrategy;
 use ggs_strategy::mcts::MctsStrategy;
 use ggs_strategy::random::RandomStrategy;
+use ggs_strategy::rl::RlStrategy;
 
 #[derive(Parser)]
 #[command(name = "simulate", about = "Run GGS simulation batch")]
@@ -19,7 +20,7 @@ struct Cli {
     #[arg(short, long, default_value_t = 0)]
     seed: u64,
 
-    /// Strategy: random | greedy | mcts
+    /// Strategy: random | greedy | mcts | rl
     #[arg(long, default_value = "greedy")]
     strategy: String,
 
@@ -120,6 +121,21 @@ fn run_game(
         "mcts" => {
             let mut strats: Vec<MctsStrategy> = (0..figures)
                 .map(|_| MctsStrategy::new(100, std::f32::consts::SQRT_2, 42))
+                .collect();
+            if save_log {
+                let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);
+                if let Some(path) = log_path {
+                    log.save(path).expect("failed to save replay log");
+                    println!("Replay saved to {}", path.display());
+                }
+                result
+            } else {
+                simulate_one_game(seed, variant, figures, &mut strats)
+            }
+        }
+        "rl" => {
+            let mut strats: Vec<RlStrategy> = (0..figures)
+                .map(|f| RlStrategy::new(seed.wrapping_add(f as u64)))
                 .collect();
             if save_log {
                 let (result, log) = simulate_one_game_logged(seed, variant, figures, &mut strats);

@@ -86,6 +86,22 @@ impl PlayerView {
 // ML observation vector
 // ---------------------------------------------------------------------------
 
+/// Fixed dimension of the observation vector. Use this to size neural network input layers.
+pub const OBS_DIM: usize = 4 * NODE_COUNT          // figure positions (one-hot)
+    + 4 * (JEWEL_COUNT + 1) // carry status
+    + NODE_COUNT            // ghosts per node
+    + NODE_COUNT            // spuk per node
+    + EDGE_COUNT            // edge closed
+    + 1                     // spuk count
+    + NODE_COUNT            // jewel in node
+    + JEWEL_COUNT           // jewel deposited
+    + JEWEL_COUNT           // jewel number
+    + 1                     // next_required_jewel
+    + 1                     // deck size
+    + MAX_FIGURES           // active figure one-hot
+    + 6                     // phase one-hot
+    + 1; // die roll
+
 /// Returns the fixed dimension of the observation vector for any variant.
 /// Call this to size neural network input layers.
 pub fn observation_dim() -> usize {
