@@ -7,3 +7,4 @@ edition = "2021"
 ggs-core     = { path = "../ggs-core" }
 ggs-strategy = { path = "../ggs-strategy" }
 rayon        = { workspace = true }
+rand         = { workspace = true }

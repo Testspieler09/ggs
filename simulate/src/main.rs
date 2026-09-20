@@ -24,7 +24,7 @@ struct Cli {
     #[arg(long, default_value = "greedy")]
     strategy: String,
 
-    /// Variant: base | draw2 | draw3 | doors | numbered | full
+    /// Variant: base | draw2 | draw3 | doors | numbered | advanced
     #[arg(long, default_value = "base")]
     variant: String,
 
@@ -69,7 +69,7 @@ fn main() {
 
 fn parse_variant(s: &str) -> Variant {
     match s {
-        "full" => Variant::ADVANCED,
+        "advanced" => Variant::ADVANCED,
         "draw2" => Variant {
             draw_two_card: true,
             ..Variant::BASE
